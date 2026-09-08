@@ -141,7 +141,6 @@ describe("PHASE 1: ESOP lifecycle on ATS primitives", () => {
           clearingActive: false, // required by protected ops
         },
       },
-      useLoadFixture: false,
     });
 
     diamond = base.diamond;

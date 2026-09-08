@@ -45,7 +45,6 @@ describe("SPIKE: ESOP hold-as-collateral vs KYC/allowlist", () => {
       equityDataParams: {
         securityData: { isMultiPartition: true, isWhiteList, isControllable: true },
       },
-      useLoadFixture: false,
     });
     diamond = base.diamond;
     employee = base.deployer;

@@ -83,7 +83,6 @@ describe("SPIKE: Privy-style EIP-712 pledge relayed by a gas-paying backend", ()
           isControllable: true,
         },
       },
-      useLoadFixture: false,
     });
 
     diamond = base.diamond;

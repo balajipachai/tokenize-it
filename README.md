@@ -45,8 +45,12 @@ Our tests need ATS's Hardhat path aliases and deployment fixtures, so `scripts/a
 them into the vendored project and runs Hardhat there. Source of truth stays in this repo.
 
 Nothing here needs a testnet account, keys, or a faucet — these are Solidity questions, and a local
-EVM answers them in about two minutes. Reach for testnet only for genuinely Hedera-specific
-behaviour (gas ceilings, the Schedule Service, the mirror node).
+EVM answers the whole suite in about 15 seconds. Reach for testnet only for genuinely
+Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
+
+> Keep `useLoadFixture` at its default (`true`) in `deployEquityTokenFixture`. Passing `false`
+> redeploys the entire ATS infrastructure on every `beforeEach` and takes the suite from 13 seconds
+> to 36 minutes.
 
 ## Layout
 
