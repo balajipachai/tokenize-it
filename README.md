@@ -17,7 +17,7 @@ and their rationale, and the phased delivery plan.
 | Phase | | |
 |---|---|---|
 | 0 | De-risking spikes | ✅ 4/4 green |
-| 1 | Token + lifecycle skeleton | ✅ 18/18 passing (local) |
+| 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | next |
 | 3 | Employee portal + Privy | |
 | 4 | Lending | |
@@ -43,6 +43,18 @@ npm run test:spikes     # the Phase 0 de-risking spikes
 
 Our tests need ATS's Hardhat path aliases and deployment fixtures, so `scripts/ats-test.sh` syncs
 them into the vendored project and runs Hardhat there. Source of truth stays in this repo.
+
+To drive the same lifecycle against real Hedera testnet, copy `.env.example` to `.env`, add your
+operator key, and:
+
+```bash
+npm run testnet:lifecycle
+```
+
+It deploys an ESOP token through the pre-deployed ATS factory, grants a vesting schedule to a
+freshly generated wallet that is never funded, releases the cliff, relays a signature-authorised
+transfer, and claws back the unvested remainder. Takes about two minutes, most of it waiting for
+the cliff.
 
 Nothing here needs a testnet account, keys, or a faucet — these are Solidity questions, and a local
 EVM answers the whole suite in about 15 seconds. Reach for testnet only for genuinely

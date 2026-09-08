@@ -798,9 +798,36 @@ Confirmed working end to end: `transferAndLockByPartition` → `releaseByPartiti
 6. **Clawback is bounded by construction.** `controllerRedeemByPartition` cannot reach locked
    tokens, so a controller bug cannot confiscate vested equity by over-redeeming — it reverts.
 
-**Still outstanding for this phase:** the same script against Hedera testnet via the ATS SDK, which
-needs a funded operator account. Everything above is chain-agnostic contract behaviour; testnet adds
-gas-ceiling and mirror-node confirmation.
+#### Testnet leg — ✅ **DONE, all five Hedera-specific questions answered**
+
+`scripts/testnet-lifecycle.ts`, run against Hedera testnet (chainId 296) through the pre-deployed
+factory. First ESOP token: **`0x17E651D659704A47932ff7Ffd6032860E468cE58`**.
+
+| | Question | Result |
+|---|---|---|
+| Q1 | Does the pre-deployed factory accept our production flag set? | ✅ Deployed with all six flags. **The version skew is a non-issue** — our contracts are pinned 2026-06-24, the testnet BLR was deployed 2026-06-12, and `deployEquity` worked unchanged. We do not need to deploy our own diamond |
+| Q2 | Real Hedera gas for `transferAndLockByPartition`? | ✅ **431,025 avg / 534,795 max** |
+| Q3 | Can a never-funded hollow address hold ESOPs? | ✅ Held 2,400 options having never been activated |
+| Q4 | Does EIP-712 validate on chainId 296 with the relayer paying? | ✅ Relayed transfer succeeded (297,083 gas); employee's native balance stayed **0** throughout |
+| Q5 | Does clawback work on Hedera? | ✅ 1,200 unvested burned, 1,150 vested retained |
+
+**The most useful result is Q2, and it is not the number itself.** Hedera charged 431,025 gas
+average against 425,406 measured locally — **within 1.3%**. Local Hardhat gas is a trustworthy
+proxy for Hedera gas on this workload, so we can keep measuring in the 13-second local suite instead
+of spending testnet HBAR. That speeds up every remaining phase.
+
+It also confirms the batching rule with real numbers: a 37-tranche grant extrapolates to **~15.9M
+gas**, against Hedera's 15M per-transaction ceiling. One transaction per tranche is not a
+preference, it is required.
+
+Q3 and Q4 together retire the last of the hollow-account concern. The employee key was generated in
+the script, never funded, never sent a transaction, and still received equity, held it, and
+authorised a transfer of it. That is the product claim, executed on the real network.
+
+> Minor correction to the §6.3 trap: the EIP-712 domain `version` read back as `"1"` here, because
+> the deployed equity config *is* version 1. The warning still stands — it is the ATS **config
+> version**, not a constant — but today's value happens to coincide with the conventional `"1"`.
+> Read it at runtime regardless; it will change when ATS registers a v2 config.
 
 ### Phase 2 — `ESOPVestingController` + Foundry tests
 Grant creation, tranche locks, cliff, release, good/bad-leaver termination. Full test coverage of

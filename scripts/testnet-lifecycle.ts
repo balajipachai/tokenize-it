@@ -129,7 +129,16 @@ async function main() {
         nominalValueDecimals: 2,
       } as never,
     },
-    { regulationType: 1, regulationSubType: 0, countriesControlListType: true, listOfCountries: "", info: "" } as never,
+    {
+      // RegulationType.REG_S / RegulationSubType.NONE
+      regulationType: 1,
+      regulationSubType: 0,
+      additionalSecurityData: {
+        countriesControlListType: true,
+        listOfCountries: "US,GB,IN",
+        info: "Essential Links employee option pool 2026-A",
+      },
+    } as never,
   );
 
   const token = (await ethers.getContractAt("IAsset", diamond.target)) as unknown as IAsset;
@@ -145,7 +154,7 @@ async function main() {
   }
   console.log("  -> both onboarded");
 
-  step("--", `Minting the ${POOL_SIZE.toLocaleString()}-option pool to the treasury...`);
+  step("--", `Minting the ${POOL_SIZE.toLocaleString("en-US")}-option pool to the treasury...`);
   await (
     await token.issueByPartition({
       partition: PARTITION,
