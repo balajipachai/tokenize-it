@@ -19,7 +19,7 @@ and their rationale, and the phased delivery plan.
 | 0 | De-risking spikes | ✅ 4/4 green |
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
-| 3 | Employee portal + Privy | next |
+| 3 | Employee portal + Privy | 🟡 built; needs a Privy app ID to sign in |
 | 4 | Lending | |
 | 5 | Issuer console | |
 | 6 | Automation + polish | |
@@ -75,7 +75,26 @@ Note what is being verified: the ESOP token is a `ResolverProxy` (an EIP-2535 di
 the ATS factory, so verifying it publishes the *proxy's* source. The facets holding the actual logic
 are separate contracts deployed by the ATS team and are verified independently.
 
-Currently verified: [`0x17E651D659704A47932ff7Ffd6032860E468cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) (`exact_match`).
+Currently verified, both `exact_match`:
+
+| Contract | Address |
+|---|---|
+| ESOP token (ResolverProxy) | [`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) |
+| ESOPVestingController | [`0xe630d8…3AE3`](https://hashscan.io/testnet/contract/0xe630d8fa035A99FB1e2ac51Df790059674313AE3) |
+
+## Employee portal
+
+```bash
+npm run testnet:deploy-controller   # once: deploy the controller + seed a demo grant
+cp apps/employee-portal/.env.example apps/employee-portal/.env.local   # add your Privy app
+npm run portal:dev                  # http://localhost:3000
+EMPLOYEE=0x... npm run testnet:grant  # grant options to the wallet the portal shows you
+```
+
+Sign in with an email; Privy creates an embedded wallet on first login. The portal shows granted
+vs vested vs still-vesting, a vesting timeline, and a Claim button. The employee never installs a
+wallet, never sees a seed phrase, and never holds HBAR — a backend relayer pays every network fee,
+and reads come straight from the chain.
 
 Nothing here needs a testnet account, keys, or a faucet — these are Solidity questions, and a local
 EVM answers the whole suite in about 15 seconds. Reach for testnet only for genuinely
@@ -94,6 +113,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 ## Layout
 
 ```
+apps/      employee-portal — Next.js + Privy, the employee-facing app
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
 tests/     lifecycle + controller suites (67 tests, ~20s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing

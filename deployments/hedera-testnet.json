@@ -11,5 +11,20 @@
     "partition": "0x0000000000000000000000000000000000000000000000000000000000000001",
     "contractIdentifier": "contracts/infrastructure/proxy/ResolverProxy.sol:ResolverProxy",
     "creationTxHash": null
+  },
+  "esopVestingController": {
+    "address": "0xe630d8fa035A99FB1e2ac51Df790059674313AE3",
+    "contractIdentifier": "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
+    "creationTxHash": "0x7b66fc6b64b38e2ff8167d2bdf3da3fd3ec5ff0e078f2ba6ab6511bfe2876303",
+    "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
+  },
+  "demoGrant": {
+    "grantId": 1,
+    "employee": "0x96bFe71ec9C60eE0b38b7814d9e010c287631541",
+    "partition": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "totalAmount": 2400,
+    "trancheCount": 13,
+    "cliffAt": 1788892114,
+    "createdAt": "2026-09-08T18:26:49.993Z"
   }
 }

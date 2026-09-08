@@ -931,11 +931,43 @@ inside its own project), and hand-rolled access control instead of OpenZeppelin 
 `IAccessControl`, which collides by Hardhat artifact name). The `admin` role still follows the
 `Ownable2Step` *shape*, which is the part that actually matters.
 
-### Phase 3 — Employee portal + Privy
-Login, backend relayer + token verification (lift `privyServer.ts` from the loyalty-card app almost
-verbatim), My Equity, vesting timeline, manual claim.
-**Demoable:** the emotional core of the pitch. If everything after this fails, you still have a
-strong submission.
+### Phase 3 — Employee portal + Privy — 🟡 **built; blocked only on a Privy app ID**
+
+`apps/employee-portal` (Next.js 16, React 19, viem, `@privy-io/react-auth` v3 + `@privy-io/node`).
+Login, My Equity, vesting timeline, manual claim. Builds and typechecks clean.
+
+**On-chain prerequisites, both done and verified.** `ESOPVestingController` is deployed at
+[`0xe630d8…3AE3`](https://hashscan.io/testnet/contract/0xe630d8fa035A99FB1e2ac51Df790059674313AE3)
+(Sourcify `exact_match`), holding 500,000 options, with demo grant #1 live: 2,400 options over 13
+tranches on a compressed schedule so a cliff actually lands during a demo. `npm run testnet:grant`
+issues a grant to any address, which is how you grant to the Privy wallet after logging in.
+
+**The read path is verified against live testnet**, independently of Privy: vested 1,200,
+unvested 1,200, 1 tranche claimable, 13 tranches, locked 2,400. So the half that does not depend on
+an app ID is proven working, not just compiling.
+
+**Architecture, as built:**
+
+- The employee's Privy wallet is an **identity, not a sender**. The server verifies the access
+  token, resolves the wallet from Privy's directory — *never* from anything the client sent — and
+  the relayer signs. That resolution step is the entire security model: a client-supplied address
+  would let anyone claim anyone's equity.
+- Reads go straight from the chain via viem; writes go through `/api/claim`.
+- `/api/claim` derives the grant from the **verified wallet**, not from a `grantId` in the body.
+  `releaseVested` is permissionless on-chain, so this is correctness rather than authority — but
+  taking an id from the body would still be the wrong shape.
+- **The relayer's authority is deliberately narrow.** It can only trigger `releaseVested`, which
+  anyone can call anyway. A compromised relayer wastes gas; it cannot move anyone's equity. Pledging
+  collateral in Phase 4 needs the employee's own EIP-712 signature, which is what spike #2 proved.
+
+**One deliberate deviation from the loyalty-card pattern.** That app throws when
+`NEXT_PUBLIC_PRIVY_APP_ID` is missing. Here that broke `next build` at prerender — a missing runtime
+secret should not fail a build — so the portal renders a setup screen instead.
+
+**To finish:** create a Privy app, set `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET` and a funded
+`RELAYER_PRIVATE_KEY` in `apps/employee-portal/.env.local`, then log in and run
+`EMPLOYEE=<privy wallet> npm run testnet:grant`. Remaining polish: browser verification of the
+login flow, and the countdown/claim loop under a real session.
 
 ### Phase 4 — Lending
 `EsopNavOracle`, `EsopPriceRouter`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate,

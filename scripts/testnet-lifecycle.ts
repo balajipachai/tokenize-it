@@ -51,8 +51,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * verifier and later phases can find the token without copy-pasting addresses.
  */
 function writeDeployment(record: unknown) {
-  // __dirname here is vendor/ats/packages/ats/contracts/scripts/tokenize-it
-  const repoRoot = path.resolve(__dirname, "../../../../../../..");
+  // vendor/ats may be a symlink, so __dirname can resolve outside the repo.
+  const repoRoot = process.env.TOKENIZE_IT_ROOT ?? path.resolve(__dirname, "../../../../../../..");
   const dir = path.join(repoRoot, "deployments");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "hedera-testnet.json"), JSON.stringify(record, null, 2) + "\n");

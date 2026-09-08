@@ -11,6 +11,10 @@
     "test:spikes": "bash scripts/ats-test.sh spike",
     "testnet:lifecycle": "bash scripts/ats-run.sh testnet-lifecycle.ts hedera-testnet",
     "verify": "node scripts/verify.mjs",
-    "test:controller": "bash scripts/ats-test.sh esopVestingController"
+    "test:controller": "bash scripts/ats-test.sh esopVestingController",
+    "testnet:deploy-controller": "bash scripts/ats-run.sh testnet-deploy-controller.ts hedera-testnet",
+    "testnet:grant": "bash scripts/ats-run.sh testnet-grant.ts hedera-testnet",
+    "portal:dev": "npm --prefix apps/employee-portal run dev",
+    "portal:build": "npm --prefix apps/employee-portal run build"
   }
 }

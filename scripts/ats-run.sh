@@ -34,12 +34,19 @@ fi
 set -a
 # shellcheck disable=SC1091
 . "$ROOT/.env"
+# vendor/ats may be a symlink, so scripts cannot derive the repo root from __dirname.
+TOKENIZE_IT_ROOT="$ROOT"
 set +a
 
 if [ -z "${HEDERA_TESTNET_PRIVATE_KEY_0:-}" ] || [ "${HEDERA_TESTNET_PRIVATE_KEY_0}" = "0x..." ]; then
   echo "HEDERA_TESTNET_PRIVATE_KEY_0 is not set in .env." >&2
   exit 1
 fi
+
+SOL_DEST="$CONTRACTS/contracts/tokenize-it"
+rm -rf "$SOL_DEST"
+mkdir -p "$SOL_DEST"
+cp -R "$ROOT"/contracts/. "$SOL_DEST"/
 
 mkdir -p "$DEST"
 cp "$ROOT/scripts/$SCRIPT" "$DEST/"
