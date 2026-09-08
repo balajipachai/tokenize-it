@@ -400,7 +400,7 @@ describe("PHASE 2: ESOPVestingController", () => {
 
       await expect(controller.connect(hr).clawback(id, 5)).to.be.revertedWithCustomError(
         controller,
-        "GrantNotActive",
+        "GrantNotTerminated",
       );
       await expect(controller.connect(priya).terminate(id, LeaverType.Bad, await time.latest())).to.be.reverted;
     });
@@ -469,6 +469,81 @@ describe("PHASE 2: ESOPVestingController", () => {
 
     it("5.4 unknown grants revert rather than silently doing nothing", async () => {
       await expect(controller.releaseVested(999, 5)).to.be.revertedWithCustomError(controller, "UnknownGrant");
+    });
+  });
+
+  describe("6. Security review findings (solidity-dev skill pass)", () => {
+    it("6.1 admin handover is two-step -- a typo'd address cannot strand the role", async () => {
+      // This address can burn employee equity via clawback, so a one-step transfer to an
+      // unreachable address would be unrecoverable.
+      await controller.connect(hr).transferAdmin(bystander.address);
+      expect(await controller.admin()).to.equal(hr.address); // unchanged until accepted
+      expect(await controller.pendingAdmin()).to.equal(bystander.address);
+
+      await expect(controller.connect(priya).acceptAdmin()).to.be.revertedWithCustomError(
+        controller,
+        "NotPendingAdmin",
+      );
+
+      await controller.connect(bystander).acceptAdmin();
+      expect(await controller.admin()).to.equal(bystander.address);
+      expect(await controller.pendingAdmin()).to.equal(ethers.ZeroAddress);
+    });
+
+    it("6.2 the grant-admin role is revocable, so a bad decider can be removed", async () => {
+      await controller.connect(hr).setGrantAdmin(priya.address, true);
+      await expect(newGrant(priya.address)).to.not.be.reverted;
+
+      await controller.connect(hr).setGrantAdmin(priya.address, false);
+      const s = schedule(await time.latest());
+      await expect(
+        controller.connect(priya).createGrant(priya.address, PARTITION, s.amounts, s.dates),
+      ).to.be.revertedWithCustomError(controller, "NotGrantAdmin");
+    });
+
+    it("6.3 every termination is permanently attributed to the deciding address", async () => {
+      // Employment ends off-chain, so the verdict is a parameter. The mitigation is
+      // attribution, not cryptography.
+      const id = await newGrant(priya.address);
+      await fundAll(id);
+      const at = await time.latest();
+
+      await expect(controller.connect(hr).terminate(id, LeaverType.Bad, at))
+        .to.emit(controller, "GrantTerminated")
+        .withArgs(id, LeaverType.Bad, at, hr.address);
+    });
+
+    it("6.4 clawback burns the SPLIT-ADJUSTED amount, not the amount recorded at grant time", async () => {
+      // ATS scales locks by the adjust-balance factor. Burning the stale, smaller number
+      // would leave a bad leaver holding unvested equity they had already forfeited.
+      const id = await newGrant(raj.address);
+      await fundAll(id);
+
+      await executeRbac(asset, [{ role: ATS_ROLES.ROLE_ADJUSTMENT_BALANCE, members: [admin.address] }]);
+      await asset.connect(admin).adjustBalances(2, 0); // 2-for-1 split
+
+      const lockedAfterSplit = await asset.getLockedAmountForByPartition(PARTITION, raj.address);
+      expect(lockedAfterSplit).to.equal(BigInt(GRANT_TOTAL) * 2n);
+
+      await controller.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      for (let i = 0; i < 5; i++) await controller.connect(hr).clawback(id, 20);
+
+      // The whole split-adjusted grant is gone -- not just the pre-split nominal amount.
+      expect(await asset.balanceOfByPartition(PARTITION, raj.address)).to.equal(0);
+      expect(await asset.getLockedAmountForByPartition(PARTITION, raj.address)).to.equal(0);
+    });
+
+    it("6.5 releaseVested reports the split-adjusted amount too", async () => {
+      const id = await newGrant(priya.address);
+      await fundAll(id);
+
+      await executeRbac(asset, [{ role: ATS_ROLES.ROLE_ADJUSTMENT_BALANCE, members: [admin.address] }]);
+      await asset.connect(admin).adjustBalances(2, 0);
+
+      await time.increaseTo(start + YEAR + 1);
+      await controller.connect(bystander).releaseVested(id, 50);
+
+      expect(await asset.balanceOfByPartition(PARTITION, priya.address)).to.equal(CLIFF * 2);
     });
   });
 });

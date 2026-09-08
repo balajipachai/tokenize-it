@@ -886,6 +886,51 @@ moves tokens from the caller. So it must be onboarded on the token exactly like 
 allowlisted — and granted `ROLE_LOCKER`, `ROLE_CONTROLLER` and (while partitions are protected)
 `ROLE_WILD_CARD`. `returnToTreasury` exists so the unallocated remainder is not stranded.
 
+#### Security review pass (`solidity-dev` skill) — 5 findings, all fixed
+
+Reviewed against
+[`solidity-dev-skill`](https://github.com/balajipachai/solidity-dev-skill), plus a Slither run.
+Suite went 25 → 30 tests.
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | **Clawback burned the amount recorded at grant time, not the current one** | **High** | Burn what the token reports as locked now |
+| 2 | External call before state write in both fund-moving loops | Medium | Flip `released`/`clawedBack` before the call (CEI) |
+| 3 | No reentrancy guard on value-moving functions | Medium | Inline `nonReentrant` on all four |
+| 4 | One-step `transferAdmin` could strand the role at a typo | Medium | Two-step `transferAdmin` + `acceptAdmin` |
+| 5 | Termination verdict was not attributed on-chain | Low | `GrantTerminated` now logs `decidedBy` |
+
+**Finding 1 was a real, quantified value bug, and the interesting one.** ATS scales locks by an
+adjust-balance factor, so `getLockForByPartition` returns a **split-adjusted** amount while our
+stored `Tranche.amount` stays at its grant-time nominal value. `clawback` force-released the
+adjusted amount into the employee's free balance but redeemed the *nominal* one. I proved the gap
+rather than asserting it: with the pre-review code, after a 2-for-1 split a bad leaver kept
+**4,800 tokens** they had already forfeited (test 6.4 fails with `expected 4800 to equal 0`); after
+the fix, zero. This is exactly the skill's *"derive stored amounts from actual value transferred,
+never from a recorded parameter"* rule, and it would have been invisible until the first company
+did a stock split.
+
+**Finding 5 is the trust-boundary rule applied to `terminate`.** Employment ends off-chain, so
+`leaver` and `effectiveAt` have to be parameters — no on-chain fact can establish who resigned or
+which day was their last. Pretending otherwise would be fake trustlessness. The mitigations are
+procedural, and now all three are present: the verdict is permanently attributed to `msg.sender`,
+the grant-admin role is revocable via `setGrantAdmin`, and the *reason it is a parameter* is
+written into the NatSpec so it survives the next reader.
+
+**Slither:** 18 → 16 results. The two removed were unchecked booleans from `releaseByPartition` /
+`forceReleaseByPartition` — they always return `true` today, but ATS is an upgradeable diamond, so
+the contract now checks them and reverts with `TokenCallFailed`. The remaining 16 are
+`calls-loop` (one lock per tranche is the design; `maxCount` is the bound), `timestamp` (vest dates
+are months apart, so validator-scale drift cannot move a tranche across its boundary),
+`uninitialized-state` on a mapping, and `unused-return` on a call that returns a partition key
+rather than a status. Each carries an inline `slither-disable-next-line` with its reason.
+
+**Two deliberate deviations from the skill's defaults**, both forced by the ATS host project:
+Hardhat instead of Foundry (our suites need ATS's fixtures and path aliases, which only resolve
+inside its own project), and hand-rolled access control instead of OpenZeppelin (ATS ships its own
+`IAccessControl`, which collides by Hardhat artifact name). The `admin` role still follows the
+`Ownable2Step` *shape*, which is the part that actually matters.
+
 ### Phase 3 — Employee portal + Privy
 Login, backend relayer + token verification (lift `privyServer.ts` from the loyalty-card app almost
 verbatim), My Equity, vesting timeline, manual claim.

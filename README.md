@@ -18,7 +18,7 @@ and their rationale, and the phased delivery plan.
 |---|---|---|
 | 0 | De-risking spikes | ✅ 4/4 green |
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
-| 2 | `ESOPVestingController` | ✅ 25/25 passing |
+| 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | next |
 | 4 | Lending | |
 | 5 | Issuer console | |
@@ -95,7 +95,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 
 ```
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
-tests/     lifecycle + controller suites (62 tests, ~20s)
+tests/     lifecycle + controller suites (67 tests, ~20s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing
 scripts/   setup + test harness
 vendor/    ATS checkout (gitignored)
