@@ -845,11 +845,46 @@ Two things worth knowing for the judging conversation:
   script recording creation transaction hashes. Runtime match is sufficient for explorers to show
   the contract as verified; future deploys record the hash and should match on both.
 
-### Phase 2 — `ESOPVestingController` + Foundry tests
-Grant creation, tranche locks, cliff, release, good/bad-leaver termination. Full test coverage of
-the leaver matrix — this is the contract most likely to have an off-by-one, and clawback bugs are
-the ones that would actually matter in production.
-**Demoable:** the entire vesting lifecycle, on-chain, via tests.
+### Phase 2 — `ESOPVestingController` — ✅ **DONE, 25/25 passing**
+
+`contracts/ESOPVestingController.sol`. Grants, batched funding, permissionless vesting, and the
+good/bad leaver matrix. Suite in `tests/esopVestingController.test.ts`; whole repo now 62 tests in
+~20 seconds.
+
+**API shape, and why it is two-phase.** `createGrant` records the schedule but locks nothing;
+`fundTranches(grantId, maxCount)` then locks it in batches until the grant flips to `Active`. That
+split is forced by the Phase 1 gas measurement, not by taste — 37 tranches is ~15.9M gas against a
+15M ceiling, so a single-call `createGrant` is impossible. Measured worst batch at 20 tranches:
+**5.97M gas**, so 20 is a safe default with real headroom.
+
+`releaseVested(grantId, maxCount)` is **permissionless**, matching the token's own semantics, and
+is idempotent — it tolerates being called twice, and tolerates a lock someone released directly on
+the token, because vesting genuinely does not depend on this contract.
+
+`terminate` and `clawback` are deliberately separate. `terminate` records the leaving date and moves
+no tokens; `clawback(grantId, maxCount)` then force-releases and burns unvested tranches in bounded
+batches. Force-release and burn happen **in the same call** on purpose: force-release drops tokens
+into the employee's free balance, and leaving them there across transactions would open a window
+where they are neither vested nor recoverable.
+
+**The correctness property worth naming: vesting stops at the leaving date.** `terminate` freezes a
+cutoff, and every subsequent vesting calculation uses it instead of `block.timestamp`. Without that,
+a terminated employee would keep vesting while HR worked through a multi-batch clawback — and since
+`releaseVested` is permissionless, *they could trigger it themselves*. Test 4.3 pins this by letting
+two years pass between termination and release and asserting the balance never moves past the cliff.
+`effectiveAt` may be back-dated to a real last working day but never forward-dated.
+
+Also pinned: a bad leaver still keeps what already vested (4.5) — forfeiture is not confiscation —
+and terminating one of an employee's grants leaves their others untouched (5.1).
+
+**Access control is hand-rolled, on purpose.** ATS ships its own `IAccessControl`, so importing
+OpenZeppelin's collides by Hardhat artifact name (`HH701`). Two roles did not justify fighting that,
+so the contract implements `admin` + `isGrantAdmin` directly.
+
+**Deployment note:** the controller *holds the option pool*, because `transferAndLockByPartition`
+moves tokens from the caller. So it must be onboarded on the token exactly like a person — KYC'd and
+allowlisted — and granted `ROLE_LOCKER`, `ROLE_CONTROLLER` and (while partitions are protected)
+`ROLE_WILD_CARD`. `returnToTreasury` exists so the unallocated remainder is not stranded.
 
 ### Phase 3 — Employee portal + Privy
 Login, backend relayer + token verification (lift `privyServer.ts` from the loyalty-card app almost

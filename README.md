@@ -18,8 +18,8 @@ and their rationale, and the phased delivery plan.
 |---|---|---|
 | 0 | De-risking spikes | ✅ 4/4 green |
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
-| 2 | `ESOPVestingController` | next |
-| 3 | Employee portal + Privy | |
+| 2 | `ESOPVestingController` | ✅ 25/25 passing |
+| 3 | Employee portal + Privy | next |
 | 4 | Lending | |
 | 5 | Issuer console | |
 | 6 | Automation + polish | |
@@ -85,10 +85,17 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 > redeploys the entire ATS infrastructure on every `beforeEach` and takes the suite from 13 seconds
 > to 36 minutes.
 
+> Hitting `HH700`/`HH701` about a missing or ambiguous artifact usually means Hardhat's cache is
+> stale after an import was added and then removed. Fix with:
+> `cd vendor/ats/packages/ats/contracts && rm -f cache/solidity-files-cache.json && npx hardhat compile`.
+> Note that ATS already ships an `IAccessControl`, so importing OpenZeppelin's collides by artifact
+> name — `ESOPVestingController` deliberately implements its own two-role access control instead.
+
 ## Layout
 
 ```
-tests/     ESOP lifecycle suite — the executable spec for ESOPVestingController
+contracts/ ESOPVestingController — grants, vesting, leaver clawback
+tests/     lifecycle + controller suites (62 tests, ~20s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing
 scripts/   setup + test harness
 vendor/    ATS checkout (gitignored)

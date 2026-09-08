@@ -22,6 +22,13 @@ fi
 
 FILTER="${1:-}"
 
+# Our Solidity has to sit inside ATS's contracts tree to compile against its
+# remappings and OpenZeppelin install.
+SOL_DEST="$CONTRACTS/contracts/tokenize-it"
+rm -rf "$SOL_DEST"
+mkdir -p "$SOL_DEST"
+cp -R "$ROOT"/contracts/. "$SOL_DEST"/
+
 rm -rf "$DEST"
 mkdir -p "$DEST"
 for f in "$ROOT"/tests/*.test.ts "$ROOT"/spikes/*.test.ts; do
