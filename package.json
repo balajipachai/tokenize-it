@@ -8,6 +8,7 @@
     "setup:ats": "bash scripts/setup-ats.sh",
     "test:ats": "bash scripts/ats-test.sh",
     "test:lifecycle": "bash scripts/ats-test.sh esopLifecycle",
-    "test:spikes": "bash scripts/ats-test.sh spike"
+    "test:spikes": "bash scripts/ats-test.sh spike",
+    "testnet:lifecycle": "bash scripts/ats-run.sh testnet-lifecycle.ts hedera-testnet"
   }
 }
