@@ -1,0 +1,15 @@
+{
+  "network": "hedera-testnet",
+  "chainId": 296,
+  "deployedAt": "2026-09-08T00:00:00.000Z",
+  "atsFactory": "0xd1F118A40f3b02883D35909eF2517e7EDd78379d",
+  "atsResolver": "0xBA2D5FC2083A0b8f164c50e65d782087fBA18E0a",
+  "esopToken": {
+    "address": "0x17E651D659704A47932ff7Ffd6032860E468cE58",
+    "name": "Acme ESOP 2026-A",
+    "symbol": "ESOP",
+    "partition": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "contractIdentifier": "contracts/infrastructure/proxy/ResolverProxy.sol:ResolverProxy",
+    "creationTxHash": null
+  }
+}

@@ -829,6 +829,22 @@ authorised a transfer of it. That is the product claim, executed on the real net
 > version**, not a constant — but today's value happens to coincide with the conventional `"1"`.
 > Read it at runtime regardless; it will change when ATS registers a v2 config.
 
+**Source verification.** The token is verified on Sourcify with an **`exact_match`**, which is what
+HashScan and the mirror-node explorers read:
+[`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58).
+`scripts/verify.mjs` submits the compiler input straight from our pinned ATS build to Sourcify's v2
+API, checks first so it is safe to re-run, and records deployments in `deployments/`.
+
+Two things worth knowing for the judging conversation:
+
+- What we verify is the **`ResolverProxy`** — the diamond the factory created. The facets holding
+  the logic are separate contracts deployed by the ATS team and verified independently. A judge
+  clicking through HashScan will see a verified proxy, not a verified monolith, and that is the
+  correct picture of a diamond.
+- We got `runtimeMatch: exact_match` but `creationMatch: null`, because this deployment predates the
+  script recording creation transaction hashes. Runtime match is sufficient for explorers to show
+  the contract as verified; future deploys record the hash and should match on both.
+
 ### Phase 2 — `ESOPVestingController` + Foundry tests
 Grant creation, tranche locks, cliff, release, good/bad-leaver termination. Full test coverage of
 the leaver matrix — this is the contract most likely to have an off-by-one, and clawback bugs are

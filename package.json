@@ -9,6 +9,7 @@
     "test:ats": "bash scripts/ats-test.sh",
     "test:lifecycle": "bash scripts/ats-test.sh esopLifecycle",
     "test:spikes": "bash scripts/ats-test.sh spike",
-    "testnet:lifecycle": "bash scripts/ats-run.sh testnet-lifecycle.ts hedera-testnet"
+    "testnet:lifecycle": "bash scripts/ats-run.sh testnet-lifecycle.ts hedera-testnet",
+    "verify": "node scripts/verify.mjs"
   }
 }

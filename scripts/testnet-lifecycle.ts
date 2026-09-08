@@ -18,6 +18,8 @@
 //
 //   npm run testnet:lifecycle
 
+import fs from "node:fs";
+import path from "node:path";
 import { ethers } from "hardhat";
 import { ethers as ethersLib } from "ethers";
 import { deployEquityFromFactory, ATS_ROLES, EQUITY_CONFIG_ID } from "@scripts";
@@ -43,6 +45,40 @@ function env(name: string, fallback?: string): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Writes the deployment record back into THIS repo (not vendor/), so the
+ * verifier and later phases can find the token without copy-pasting addresses.
+ */
+function writeDeployment(record: unknown) {
+  // __dirname here is vendor/ats/packages/ats/contracts/scripts/tokenize-it
+  const repoRoot = path.resolve(__dirname, "../../../../../../..");
+  const dir = path.join(repoRoot, "deployments");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "hedera-testnet.json"), JSON.stringify(record, null, 2) + "\n");
+}
+
+/**
+ * The diamond is created by CREATE inside the factory's deployEquity call, so
+ * that call is its creation transaction. Sourcify can find creation bytecode on
+ * its own, but handing it the hash makes the match reliable rather than
+ * dependent on third-party indexers.
+ */
+async function findCreationTx(factory: { queryFilter: never }, diamondAddress: string): Promise<string | null> {
+  try {
+    const f = factory as unknown as {
+      queryFilter: (ev: string, from: number, to: string) => Promise<{ args?: unknown[]; transactionHash: string }[]>;
+    };
+    const current = await ethers.provider.getBlockNumber();
+    const events = await f.queryFilter("EquityDeployed", Math.max(0, current - 20), "latest");
+    const hit = events.find((e) =>
+      (e.args ?? []).some((a) => typeof a === "string" && a.toLowerCase() === diamondAddress.toLowerCase()),
+    );
+    return hit?.transactionHash ?? null;
+  } catch {
+    return null; // optional -- Sourcify will fall back to its own lookup
+  }
+}
 
 function step(n: string, msg: string) {
   console.log(`\n\x1b[36m[${n}]\x1b[0m ${msg}`);
@@ -143,7 +179,28 @@ async function main() {
 
   const token = (await ethers.getContractAt("IAsset", diamond.target)) as unknown as IAsset;
   console.log(`  -> ESOP token deployed at ${diamond.target}`);
-  console.log(`     add to .env as ESOP_TOKEN_ADDRESS=${diamond.target}`);
+
+  // Record it so `npm run verify` and later phases can find it without copy-paste.
+  // The proxy is created by CREATE inside the factory call, so the factory's
+  // deployEquity transaction IS this contract's creation transaction.
+  const creationTxHash = await findCreationTx(factory, diamond.target as string);
+  writeDeployment({
+    network: "hedera-testnet",
+    chainId: Number(net.chainId),
+    deployedAt: new Date().toISOString(),
+    operator: operator.address,
+    atsFactory: env("ATS_FACTORY_ADDRESS"),
+    atsResolver: resolver,
+    esopToken: {
+      address: diamond.target as string,
+      name: "Acme ESOP 2026-A",
+      symbol: "ESOP",
+      partition: PARTITION,
+      contractIdentifier: "contracts/infrastructure/proxy/ResolverProxy.sol:ResolverProxy",
+      creationTxHash,
+    },
+  });
+  console.log(`     recorded in deployments/hedera-testnet.json — run 'npm run verify' to publish sources`);
 
   // ------------------------------------------------------------- onboarding
   step("--", "Onboarding: KYC + allowlist for the treasury and the employee...");

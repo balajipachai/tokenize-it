@@ -54,7 +54,28 @@ npm run testnet:lifecycle
 It deploys an ESOP token through the pre-deployed ATS factory, grants a vesting schedule to a
 freshly generated wallet that is never funded, releases the cliff, relays a signature-authorised
 transfer, and claws back the unvested remainder. Takes about two minutes, most of it waiting for
-the cliff.
+the cliff. What it deploys is recorded in `deployments/hedera-testnet.json`.
+
+### Verifying deployed contracts
+
+Hedera reads verification status from [Sourcify](https://sourcify.dev), which HashScan and the
+mirror-node explorers then surface. Publish sources for whatever the last run deployed:
+
+```bash
+npm run verify                    # uses deployments/hedera-testnet.json
+node scripts/verify.mjs 0xabc...  # or a specific address
+node scripts/verify.mjs 0xabc... --contract contracts/foo/Bar.sol:Bar --chain 295
+```
+
+The script checks first and exits early if the contract is already verified, so it is safe to
+re-run. It reads the compiler input straight from the pinned ATS build, which is why the match is
+exact — we compile the same source the factory deployed.
+
+Note what is being verified: the ESOP token is a `ResolverProxy` (an EIP-2535 diamond) created by
+the ATS factory, so verifying it publishes the *proxy's* source. The facets holding the actual logic
+are separate contracts deployed by the ATS team and are verified independently.
+
+Currently verified: [`0x17E651D659704A47932ff7Ffd6032860E468cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) (`exact_match`).
 
 Nothing here needs a testnet account, keys, or a faucet — these are Solidity questions, and a local
 EVM answers the whole suite in about 15 seconds. Reach for testnet only for genuinely
