@@ -567,6 +567,49 @@ inside `ProtectedHold`.
 signed by a key only they control, while the company pays every gas fee and the employee never
 learns what gas is.
 
+#### Spike #2 result — **GREEN** (run 2026-09-08, 9/9 passing)
+
+`spikes/privyProtectedHold.spike.test.ts`. The employee is modelled as a **detached
+`ethers.Wallet.createRandom()` with a zero balance that never sends a transaction** — precisely a
+Privy embedded wallet on an unactivated Hedera account.
+
+| # | Assertion | Result |
+|---|---|---|
+| E1 | ATS's hardcoded on-chain type string == a standard EIP-712 encoder's output | ✅ **byte-identical** |
+| E2 | Domain is the standard 4 fields (`name, version, chainId, verifyingContract`), no salt | ✅ |
+| F1 | Employee signs offline, relayer submits, hold is created | ✅ |
+| F2 | Employee's native balance is **0 wei before and after** | ✅ never pays gas |
+| F3 | Signature from the wrong key | ❌ rejected |
+| F4 | Replay of the same signature | ❌ rejected |
+| F5 | Expired `deadline` | ❌ rejected |
+| F6 | Relayer without the partition role, valid signature | ❌ rejected |
+| G1 | Self-service `createHoldByPartition` while partitions are protected | ❌ blocked |
+
+**E1 is the assertion that closes the Privy question.** ATS hand-writes its type strings as
+`keccak256` literals in `contracts/constants/eip712.sol`, so the risk was that they diverged from
+the spec and demanded a bespoke signing path. They do not — `ethers.TypedDataEncoder` generates the
+identical string. Combined with Privy's documented support for `eth_signTypedData_v4` and its
+`useSignTypedData` hook, **any spec-compliant wallet produces a signature ATS accepts.** There is no
+Privy-specific contract work.
+
+F2 is the product claim, mechanically demonstrated: the employee pledged 400 tokens of collateral
+while holding zero native balance the entire time. On Hedera that address is an unactivated hollow
+account, and it still worked.
+
+F6 and G1 together confirm the security shape is right: the relayer is a **role-gated participant**,
+not an omnipotent key — it cannot act without a valid holder signature, and holders cannot bypass it.
+
+> **Trap worth writing down — cost us a real debugging cycle if missed.** The EIP-712 domain
+> `version` is **the ATS config version as a decimal string** (from `getConfigInfo().version_`),
+> *not* the conventional `"1"`. A frontend that hardcodes `version: "1"` will produce
+> signatures that fail verification with no useful error. Read both `name` and `version` from the
+> deployed token at runtime and cache them — never hardcode either.
+
+**Not yet covered:** the signature was produced by ethers rather than by Privy's actual SDK in a
+browser. Since E1 proves the payload is spec-standard and Privy documents `eth_signTypedData_v4`
+support, the residual risk is integration-level (wiring, chain config), not cryptographic. Close it
+in Phase 3 with the first real login.
+
 ### 6.4 Consequences for the ATS SDK
 
 - **No `debug`-mode workaround, no `setSignerOrProvider` juggling, no SDK fork.** The backend is a
@@ -692,11 +735,10 @@ the four are already closed, without writing any project code:
 | 3 | Do the Chainlink feeds on Hedera testnet answer? | ✅ **GREEN** | Raw `eth_call` of `latestRoundData()` (selector `0xfeaf968c`) against Hashio. All three feeds live, 8 dp. Found the USDC staleness gotcha as a bonus. See §5.3.2 |
 | 4 | Is HIP-1215 `scheduleCall` available? | ✅ **GREEN** | `hasScheduleCapacity(...)` → `true`; `hapi_version` 0.76.3. See §7 |
 | 1 | Can a hold be executed to a non-KYC'd pool? | ✅ **GREEN, conditional** | 10/10 Hardhat assertions against the real ATS contracts. Pledge/repay need no privileges; liquidation requires the pool to be KYC'd **and** allowlisted. Also found C2: held tokens are immune to controller clawback, so hold expiry must always be bounded. See §5.2 |
-| 2 | Does the Privy → protected-hold path work end to end? | 🟡 **OPEN — now the only blocker** | Reduced by §6 from "does the SDK accept a Privy signer" to "does an EIP-712 signature from a Privy embedded wallet validate in `protectedCreateHoldByPartition`". Sign a `ProtectedHold` payload client-side, submit from a backend key, assert the hold exists. ~3 hours |
+| 2 | Does an off-chain signature authorise a pledge with the employee paying no gas? | ✅ **GREEN** | 9/9 assertions. ATS's EIP-712 type string is byte-identical to the standard encoding, so any compliant wallet works; employee held 0 wei throughout. Found the domain-`version` trap. See §6.3 |
 
-**No spike can force a redesign any more.** #1 was the one that could, and it came back green. #2
-has a known fallback (relayer-submitted `createHoldFromByPartition` under an operator grant) if the
-signature path disappoints, so it can change the UX but not the architecture.
+**All four Phase 0 spikes are green. Nothing outstanding can force a redesign.** Every load-bearing
+assumption in this plan has now been executed rather than asserted.
 
 Method note worth reusing: spike #1 ran on a **local Hardhat EVM against the real ATS contracts**,
 because "does the compliance stack block this?" is a Solidity question, not a Hedera one. No
@@ -752,7 +794,8 @@ upside. If you are behind, cut Phase 6 first and the cap table from Phase 5 seco
 | 5 | 37 tranche locks exceed the gas ceiling | Medium | Batch across transactions, or use a 12-tranche demo schedule |
 | 6 | ATS SDK v8 API drift vs docs | Medium | The vendored source is ground truth — read `packages/ats/sdk/src/port/in`, not the docs |
 | 7 | Hashio rate limits under demo load | Medium | Own relay endpoint or a paid provider; cache reads through the Mirror Node, not RPC |
-| 8 | **Relayer key compromise or drain** | **High** *(new)* | The relayer pays all gas and holds issuer authority. Rate-limit per user, idempotency keys, cap per-tx gas, alert on balance drop, keep it off the issuer's admin key |
+| 8 | **Relayer key compromise or drain** | **High** *(new)* | The relayer pays all gas and holds issuer authority. Rate-limit per user, idempotency keys, cap per-tx gas, alert on balance drop, keep it off the issuer's admin key. Spike #2 F6 confirms it cannot pledge without a holder signature, which bounds the blast radius |
+| 8b | **Hardcoded EIP-712 domain `version`** | Medium *(new, from spike #2)* | ATS sets domain `version` to the config version (`getConfigInfo().version_`), not `"1"`. Hardcoding it yields signatures that fail with no useful error. Read `name` and `version` from the deployed token at runtime |
 | 9 | Option-vs-share ambiguity surfaces in Q&A | Medium *(new)* | §3.2. Pick Model C, state it in one sentence on stage, have the Model A migration path ready as the answer to "but real ESOPs have a strike price" |
 | 10 | Scope | **High** | The cut line in §9 is the mitigation. Honour it |
 
