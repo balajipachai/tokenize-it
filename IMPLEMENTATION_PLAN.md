@@ -95,8 +95,8 @@ ATS call — not a token with a name on it.
 | 9 | Default / LTV breach | `executeHoldByPartition` moves collateral to the pool — **the only address that can do this is the escrow**. Requires the pool to be KYC'd + allowlisted (§5.2 spike #1) |
 | 10 | Employee resigns pre-cliff (bad leaver) | `forceReleaseByPartition` on every unvested lock, then `controllerRedeemByPartition` to burn |
 | 11 | Employee resigns post-cliff (good leaver) | Unvested clawed back as in #10. What happens to the **vested** portion depends on what the token represents — see §3.2, which is a genuine modelling decision, not a detail |
-| 12 | Disciplinary suspension | `setAddressFrozen(employee, true)` — reversible, no burn |
-| 13 | Partial freeze (e.g. disputed tranche) | `freezePartialTokens(employee, amount)` |
+| 12 | Disciplinary suspension | `setAddressFrozen(employee, true)` — reversible, no burn. **Read the state back with `isInControlList`, not `isFrozen`** (Phase 1 finding 3) |
+| 13 | ~~Partial freeze (disputed tranche)~~ | **Not available.** `freezePartialTokens` is `onlyWithoutMultiPartition` — see Phase 1 finding 2. Multi-partition tokens get all-or-nothing freeze only |
 | 14 | Lost login | `recovery` facet re-points the holding to a new Privy wallet |
 | 15 | Company pays a dividend | `dividend` + `corporateActions` facets |
 | 16 | Stock split | `adjustBalances` |
@@ -745,11 +745,62 @@ because "does the compliance stack block this?" is a Solidity question, not a He
 testnet, no keys, no faucet, ~1 minute per run. Reach for testnet only when the question is
 genuinely about Hedera — gas ceilings, HSS, the mirror node.
 
-### Phase 1 — Token + lifecycle skeleton
-Deploy an ESOP equity via the existing testnet factory. Grant KYC to two test employees. Manually
-exercise `transferAndLockByPartition`, `release`, `forceReleaseByPartition`,
-`controllerRedeemByPartition`, `freeze` via the SDK in a script.
-**Demoable:** a real security token with real compliance, driven from the terminal.
+### Phase 1 — Token + lifecycle skeleton — ✅ **DONE (local), 18/18 passing**
+
+`tests/esopLifecycle.test.ts` drives the whole lifecycle against real ATS contracts with the
+production flag set from §3.1 — pool creation, KYC + allowlist onboarding, a 4-year/1-year-cliff
+grant as 37 locks, cliff release, monthly vesting, freeze, bad leaver, good leaver. It is the
+executable specification for `ESOPVestingController`, so Phase 2 has nothing left to discover.
+
+Confirmed working end to end: `transferAndLockByPartition` → `releaseByPartition` →
+`forceReleaseByPartition` + `controllerRedeemByPartition`, plus `setAddressFrozen` and the relayed
+`protectedTransferFromByPartition`.
+
+**Findings that change the build.** Four of these would have cost real time if met mid-Phase-4.
+
+1. **Risk #5 is resolved with a number.** A 37-tranche grant costs **425k gas average, 535k max per
+   tranche, 15.7M total**. Hedera's per-transaction contract-call ceiling is 15M, so the grant
+   **must** be one transaction per tranche — batching the whole schedule into a single call would
+   exceed the ceiling on its own. Budget ~28 tranches as the absolute per-transaction maximum and
+   do not go near it. `createGrant` is therefore a loop of N transactions, and the issuer console
+   needs a progress indicator rather than a single spinner.
+
+2. **Multi-partition disables three APIs.** `lock()`, `release()` and `freezePartialTokens()` all
+   carry `onlyWithoutMultiPartition`. Use `lockByPartition` / `releaseByPartition` throughout — and
+   accept that **partial freeze does not exist for us**. Multi-partition tokens only get
+   all-or-nothing address freeze, so "freeze one disputed tranche" is not a feature we can offer.
+   Remove it from the issuer console scope.
+
+3. **`setAddressFrozen` and `isFrozen` are inconsistent — do not trust `isFrozen`.**
+   `setAddressFrozen` manipulates the **control list** (whitelist mode: removes the address;
+   blacklist mode: adds it), while `isFrozen()` reads `frozenTokens[user] > 0`, the *partial-freeze*
+   counter that `setAddressFrozen` never writes. So freezing works — transfers are blocked — but
+   `isFrozen()` keeps returning `false`. Two consequences:
+   - The UI must read freeze state from **`isInControlList()`**, never `isFrozen()`.
+   - Freeze and allowlist share one storage slot, so calling `addToControlList()` on a frozen
+     employee **silently unfreezes them**. Onboarding and suspension must never be managed by
+     independent code paths.
+
+4. **Protected partitions block *every* direct employee action, not just holds.** With
+   `arePartitionsProtected = true`, an employee cannot even `transferByPartition` their own vested
+   tokens — everything must be relayed via a `protected*` variant with their EIP-712 signature.
+   - *Good:* this makes the §6 gasless claim airtight. There is genuinely **no** code path that
+     requires an employee to send a transaction, so they never need HBAR or an activated Hedera
+     account. Not a convenience — a structural guarantee.
+   - *Cost:* the relayer becomes load-bearing for ordinary transfers too. If it is down, employees
+     can do nothing. Treat relayer availability as a production concern (health checks, a queue,
+     and a documented break-glass path), and add it to the risk register.
+
+5. **Vesting release is genuinely permissionless** — verified by having a zero-role, zero-token
+   bystander call `releaseByPartition` and succeed. The trustless-vesting claim in §3.3 holds
+   without qualification, and the keeper is a convenience rather than a dependency.
+
+6. **Clawback is bounded by construction.** `controllerRedeemByPartition` cannot reach locked
+   tokens, so a controller bug cannot confiscate vested equity by over-redeeming — it reverts.
+
+**Still outstanding for this phase:** the same script against Hedera testnet via the ATS SDK, which
+needs a funded operator account. Everything above is chain-agnostic contract behaviour; testnet adds
+gas-ceiling and mirror-node confirmation.
 
 ### Phase 2 — `ESOPVestingController` + Foundry tests
 Grant creation, tranche locks, cliff, release, good/bad-leaver termination. Full test coverage of
@@ -791,7 +842,8 @@ upside. If you are behind, cut Phase 6 first and the cap table from Phase 5 seco
 | 2 | ~~Privy hollow accounts un-activated~~ | ~~High~~ → **Low** | **Retired by §6.** Employees never send transactions, so their accounts never need activating. Only the backend relayer needs HBAR — one account to fund and monitor |
 | 3 | ~~Chainlink feeds stale or absent~~ | ~~Medium~~ → **Closed** | Verified live (§5.3.2). Residual: use **per-feed** staleness thresholds — USDC/USD was 18 h old at check time and a global 1 h guard would brick the pool |
 | 4 | ~~HIP-1215 unavailable~~ | ~~Low~~ → **Closed** | Verified live (§7). Residual: the 62-day expiry cap forces rolling re-arm; the keeper must detect a failed roll |
-| 5 | 37 tranche locks exceed the gas ceiling | Medium | Batch across transactions, or use a 12-tranche demo schedule |
+| 5 | ~~37 tranche locks exceed the gas ceiling~~ | ~~Medium~~ → **Closed** | Measured in Phase 1: 425k avg / 535k max per tranche. Safe as one tx per tranche; unsafe if batched (15.7M total vs a 15M ceiling) |
+| 5b | **Relayer downtime blocks all employee actions** | **High** *(new, from Phase 1)* | Protected partitions mean employees cannot transact directly at all. Health-check the relayer, queue and retry submissions, and document a break-glass (temporarily grant the employee `WILD_CARD`, or unprotect the partition) |
 | 6 | ATS SDK v8 API drift vs docs | Medium | The vendored source is ground truth — read `packages/ats/sdk/src/port/in`, not the docs |
 | 7 | Hashio rate limits under demo load | Medium | Own relay endpoint or a paid provider; cache reads through the Mirror Node, not RPC |
 | 8 | **Relayer key compromise or drain** | **High** *(new)* | The relayer pays all gas and holds issuer authority. Rate-limit per user, idempotency keys, cap per-tx gas, alert on balance drop, keep it off the issuer's admin key. Spike #2 F6 confirms it cannot pledge without a holder signature, which bounds the blast radius |
