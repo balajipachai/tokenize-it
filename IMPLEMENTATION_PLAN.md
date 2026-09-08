@@ -92,7 +92,7 @@ ATS call — not a token with a name on it.
 | 6 | Employee views position | Portal reads `getLocksIdFor` / `getLockFor` + `balanceOfByPartition` → granted / vested / unvested / locked-as-collateral |
 | 7 | **Borrow against vested equity** | `createHoldByPartition` with `escrow = ESOPLendingPool` → pool disburses stablecoin (see §6) |
 | 8 | Repay | `releaseHoldByPartition` returns collateral to free balance |
-| 9 | Default / LTV breach | `executeHoldByPartition` moves collateral to the pool — **the only address that can do this is the escrow** |
+| 9 | Default / LTV breach | `executeHoldByPartition` moves collateral to the pool — **the only address that can do this is the escrow**. Requires the pool to be KYC'd + allowlisted (§5.2 spike #1) |
 | 10 | Employee resigns pre-cliff (bad leaver) | `forceReleaseByPartition` on every unvested lock, then `controllerRedeemByPartition` to burn |
 | 11 | Employee resigns post-cliff (good leaver) | Unvested clawed back as in #10. What happens to the **vested** portion depends on what the token represents — see §3.2, which is a genuine modelling decision, not a detail |
 | 12 | Disciplinary suspension | `setAddressFrozen(employee, true)` — reversible, no burn |
@@ -324,9 +324,59 @@ Why the hold model is the right call, and worth saying out loud in the pitch:
 - This is a genuinely novel use of ERC-1400 holds and it is the strongest technical differentiator
   in the project.
 
-**[verify] — highest-priority spike (day 1):** confirm an ATS hold can be created over a *vested,
-unlocked* balance, and that `executeHoldByPartition` to a non-KYC'd pool address either succeeds or
-tells us we must KYC the pool. Do this before anything else; the whole lending design rests on it.
+#### Spike #1 result — **GREEN, with two conditions** (run 2026-09-08, 10/10 passing)
+
+Run as a Hardhat integration test against the real ATS contracts on a local EVM — the question is
+contract logic, not Hedera behaviour, so it needed no testnet, no keys and no faucet.
+Test: `test/contracts/integration/spike/esopCollateral.spike.test.ts`.
+
+| # | Assertion | Result |
+|---|---|---|
+| A1 | `createHoldByPartition` with a **non-KYC'd, non-allowlisted** pool as escrow + destination | ✅ **succeeds** |
+| A2 | `releaseHoldByPartition` — **the repay path** — with a non-KYC'd escrow | ✅ **succeeds** |
+| A3 | `executeHoldByPartition` — **the liquidation path** — to a non-KYC'd pool | ❌ reverts `InvalidKycStatus` |
+| A4 | Same, after `grantKyc(pool)` | ✅ succeeds |
+| B2 | Liquidation to a pool that is KYC'd but **not allowlisted** (allowlist mode) | ❌ reverts |
+| B3 | Liquidation to a pool that is **both KYC'd and allowlisted** | ✅ succeeds |
+| A5 | Liquidation to a **KYC'd treasury** while the pool remains the escrow | ✅ succeeds |
+| C2 | `controllerRedeemByPartition` reaching tokens under an active hold | ❌ reverts |
+
+This is visible directly in the facet modifiers, which is why the result is trustworthy rather than
+incidental — `executeHoldByPartition` carries `onlyIdentifiedAddresses(tokenHolder, _to)` and
+`onlyCompliant(address(0), _to, false)`, while `releaseHoldByPartition` carries neither.
+
+**What this means for the design — the core mechanic survives intact:**
+
+1. **Borrowing and repaying need no privileges at all.** The employee can pledge to any escrow, and
+   repayment always works. The happy path is completely unencumbered, which is the path 99% of
+   loans take.
+2. **The pool must be onboarded as a holder — KYC'd *and* allowlisted — but only so liquidation can
+   land.** This is a one-time issuer action at deployment, not per-loan friction. And it is
+   *correct*: a venue that can end up owning shares should be a known, approved holder. Frame it as
+   the compliance model working, not as a workaround.
+3. **Compliance is enforced exactly where it should be.** Pledging is not a transfer, so it is
+   unrestricted; liquidation *is* a transfer, so it runs the full stack. That is a genuinely elegant
+   property of ERC-1400 holds and worth one sentence in the pitch.
+
+**New finding (C2) that changes a design rule.** Tokens under an active hold are **shielded from
+`controllerRedeemByPartition`** — the issuer cannot claw back pledged collateral. There is also no
+issuer override: `controllerHoldByPartition` only exposes `controllerCreateHoldByPartition` (create,
+not break), and `reclaimHoldByPartition` works only *after* expiry.
+
+So **the hold's `expirationTimestamp` is the issuer's only backstop**, which gives us a hard rule:
+
+> `ESOPLendingPool` must **never** create a hold with `expirationTimestamp = 0` (the ATS "never
+> expires" sentinel). Always set `loanTerm + grace`, and reject any user-supplied hold whose
+> expiration exceeds a configured maximum.
+
+Without that rule an employee could permanently escape clawback by pledging to a cooperative
+escrow. The exposure is bounded — only *vested* tokens can be held, and unvested tokens are locked
+rather than held, so they cannot be pledged at all — but the rule costs nothing and closes it.
+
+**Remaining unknowns, both minor:** we have not yet confirmed a hold can be placed over a balance
+that was *previously* locked and then released by vesting (expected to be fine — release returns
+tokens to the free balance), nor measured this on Hedera rather than a local EVM. Both are cheap to
+fold into Phase 1.
 
 #### Why not integrate Aave / Compound / Morpho?
 
@@ -641,10 +691,17 @@ the four are already closed, without writing any project code:
 |---|---|---|---|
 | 3 | Do the Chainlink feeds on Hedera testnet answer? | ✅ **GREEN** | Raw `eth_call` of `latestRoundData()` (selector `0xfeaf968c`) against Hashio. All three feeds live, 8 dp. Found the USDC staleness gotcha as a bonus. See §5.3.2 |
 | 4 | Is HIP-1215 `scheduleCall` available? | ✅ **GREEN** | `hasScheduleCapacity(...)` → `true`; `hapi_version` 0.76.3. See §7 |
-| 1 | Can a hold be executed to a non-KYC'd pool? | 🔴 **OPEN — do first** | Deploy an ESOP token via the existing testnet factory, mint to a test address, `createHoldByPartition` with a third-party escrow, then have the escrow call `executeHoldByPartition`. ~2 hours with the SDK. *Gates §5.2, the core novelty* |
-| 2 | Does the Privy → protected-hold path work end to end? | 🟡 **NARROWED** | Reduced by §6 from "does the SDK accept a Privy signer" to "does an EIP-712 signature from a Privy embedded wallet validate in `protectedCreateHoldByPartition`". Sign a `ProtectedHold` payload client-side, submit from a backend key, assert the hold exists. ~3 hours |
+| 1 | Can a hold be executed to a non-KYC'd pool? | ✅ **GREEN, conditional** | 10/10 Hardhat assertions against the real ATS contracts. Pledge/repay need no privileges; liquidation requires the pool to be KYC'd **and** allowlisted. Also found C2: held tokens are immune to controller clawback, so hold expiry must always be bounded. See §5.2 |
+| 2 | Does the Privy → protected-hold path work end to end? | 🟡 **OPEN — now the only blocker** | Reduced by §6 from "does the SDK accept a Privy signer" to "does an EIP-712 signature from a Privy embedded wallet validate in `protectedCreateHoldByPartition`". Sign a `ProtectedHold` payload client-side, submit from a backend key, assert the hold exists. ~3 hours |
 
-Spike #1 is the only one that can still force a redesign. Do it on day one, before anything else.
+**No spike can force a redesign any more.** #1 was the one that could, and it came back green. #2
+has a known fallback (relayer-submitted `createHoldFromByPartition` under an operator grant) if the
+signature path disappoints, so it can change the UX but not the architecture.
+
+Method note worth reusing: spike #1 ran on a **local Hardhat EVM against the real ATS contracts**,
+because "does the compliance stack block this?" is a Solidity question, not a Hedera one. No
+testnet, no keys, no faucet, ~1 minute per run. Reach for testnet only when the question is
+genuinely about Hedera — gas ceilings, HSS, the mirror node.
 
 ### Phase 1 — Token + lifecycle skeleton
 Deploy an ESOP equity via the existing testnet factory. Grant KYC to two test employees. Manually
@@ -665,7 +722,9 @@ verbatim), My Equity, vesting timeline, manual claim.
 strong submission.
 
 ### Phase 4 — Lending
-`EsopNavOracle`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate, portal borrow UI.
+`EsopNavOracle`, `EsopPriceRouter`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate,
+portal borrow UI. **Onboard the pool address as a KYC'd + allowlisted holder as part of deployment**
+(spike #1) and enforce bounded hold expiry (finding C2).
 **Demoable:** the differentiator — borrow against vested equity without selling it.
 
 ### Phase 5 — Issuer console
@@ -685,7 +744,8 @@ upside. If you are behind, cut Phase 6 first and the cap table from Phase 5 seco
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | Hold cannot be executed to a non-KYC'd pool | **High** — breaks §5.2 | Phase 0 spike #1, day one. Fallback: KYC the pool address as an institutional holder, or route liquidation through the issuer as controller |
+| 1 | ~~Hold cannot be executed to a non-KYC'd pool~~ | ~~High~~ → **Closed** | Confirmed by spike #1 (§5.2). Pledge and repay are unrestricted; liquidation needs the pool KYC'd + allowlisted, which is a one-time deployment step |
+| 1b | **Perpetual hold used to dodge clawback** | Medium *(new, from spike C2)* | Held tokens are immune to `controllerRedeemByPartition` and there is no issuer override. `ESOPLendingPool` must never issue a hold with `expirationTimestamp = 0`, and must cap user-supplied expirations |
 | 2 | ~~Privy hollow accounts un-activated~~ | ~~High~~ → **Low** | **Retired by §6.** Employees never send transactions, so their accounts never need activating. Only the backend relayer needs HBAR — one account to fund and monitor |
 | 3 | ~~Chainlink feeds stale or absent~~ | ~~Medium~~ → **Closed** | Verified live (§5.3.2). Residual: use **per-feed** staleness thresholds — USDC/USD was 18 h old at check time and a global 1 h guard would brick the pool |
 | 4 | ~~HIP-1215 unavailable~~ | ~~Low~~ → **Closed** | Verified live (§7). Residual: the 62-day expiry cap forces rolling re-arm; the keeper must detect a failed roll |
