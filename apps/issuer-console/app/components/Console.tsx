@@ -56,7 +56,9 @@ export function Console() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!d) return;
+    // Gate on the connection, not just the render: without this the cap table still
+    // arrives over the wire and sits in the network tab for anyone looking.
+    if (!d || !account) return;
     const known = Array.from(
       new Set([...(d.grants ?? []).map((g) => g.employee), ...(d.demoGrant ? [d.demoGrant.employee] : [])]),
     ) as Address[];
@@ -73,13 +75,21 @@ export function Console() {
     ]);
     setHolders(rows);
     setPool({ supply: Number(supply), max: Number(max), treasury: Number(treasury) });
-  }, [d]);
+  }, [d, account]);
 
   useEffect(() => {
     // Surfacing this matters: a silent failure here renders an empty console that
     // looks like "no employees yet" rather than "the reads broke".
     refresh().catch((e) => setError(e instanceof Error ? e.message.split("\n")[0] : "Could not read chain state."));
   }, [refresh]);
+
+  useEffect(() => {
+    if (!account) {
+      setHolders([]);
+      setPool(null);
+      setIsAdmin(null);
+    }
+  }, [account]);
 
   async function doConnect() {
     try {
@@ -173,7 +183,22 @@ export function Console() {
         </div>
       )}
 
-      {pool && (
+      {!account && (
+        <div className="card">
+          <h2>Connect to continue</h2>
+          <p className="muted">
+            The cap table — who holds what, and what has vested — stays hidden until a wallet is
+            connected. Note this is housekeeping rather than confidentiality: the same data is
+            public on-chain to anyone who reads the token contract. It keeps a shared screen or a
+            passing glance from showing everyone&rsquo;s equity.
+          </p>
+          <div className="row">
+            <button onClick={() => void doConnect()}>Connect wallet</button>
+          </div>
+        </div>
+      )}
+
+      {account && pool && (
         <div className="card">
           <h2>Option pool</h2>
           <div className="stats">
@@ -197,6 +222,7 @@ export function Console() {
         </div>
       )}
 
+      {account && (
       <div className="card">
         <h2>Issue a grant</h2>
         <div className="grid">
@@ -271,7 +297,9 @@ export function Console() {
           </button>
         </div>
       </div>
+      )}
 
+      {account && (
       <div className="card">
         <h2>Employees</h2>
         {holders.length === 0 && <p className="muted">No grants issued yet.</p>}
@@ -386,6 +414,7 @@ export function Console() {
           </div>
         ))}
       </div>
+      )}
 
       <p className="muted">
         Every action here is signed by <strong>your</strong> wallet, not a shared server key — terminations record the

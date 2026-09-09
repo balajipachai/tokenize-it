@@ -26,6 +26,7 @@ interface Position {
   token: { address: string; name: string; symbol: string };
   hasGrant: boolean;
   grantId: number | null;
+  grantCount: number;
   status: number;
   granted: number;
   vested: number;
@@ -210,6 +211,25 @@ export function Dashboard() {
         </button>
       </div>
 
+      {claiming && (
+        <div className="overlay" role="status" aria-live="polite">
+          <div className="overlay-card">
+            <span className="spinner big" />
+            <p className="overlay-what">Claiming your vested options</p>
+            <p className="muted">
+              {claimHash ? "Confirming on Hedera…" : "Submitting…"}
+              <br />
+              Your employer pays the fee.
+            </p>
+            {claimHash && (
+              <p className="muted" style={{ marginTop: 10 }}>
+                <TxLink hash={claimHash} label="Follow the transaction" />
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {error && <div className="banner error">{error}</div>}
       {notice && (
         <div className="banner ok">
@@ -244,15 +264,26 @@ export function Dashboard() {
               of {fmt(position.granted)} granted &middot; {position.token.symbol}
               {position.status === 3 && " · grant terminated"}
             </p>
+            <p className="muted" style={{ marginTop: 6 }}>
+              Vesting happens on its own — each tranche becomes yours the moment its date
+              passes, with nobody needing to do anything. Claiming is the separate step that
+              moves vested options into your wallet so you can hold, transfer or borrow
+              against them.
+            </p>
 
             <div className="stats">
               <div className="stat">
                 <div className="value">{fmt(position.unvested)}</div>
                 <div className="label">Still vesting</div>
               </div>
-              <div className="stat">
+              <div
+                className="stat"
+                title="Claimed and unlocked — free to hold, transfer or borrow against"
+              >
                 <div className="value">{fmt(position.spendable)}</div>
-                <div className="label">In your wallet</div>
+                <div className="label">
+                  In your wallet{position.grantCount > 1 && ` · ${position.grantCount} grants`}
+                </div>
               </div>
               <div className="stat">
                 <div className="value">

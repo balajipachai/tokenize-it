@@ -74,6 +74,8 @@ export interface PositionView {
   controller: Address;
   hasGrant: boolean;
   grantId: number | null;
+  /** How many grants this wallet holds. The balance spans all of them; the rest is the latest. */
+  grantCount: number;
   status: number;
   granted: number;
   vested: number;
@@ -181,6 +183,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       ...base,
       hasGrant: false,
       grantId: null,
+      grantCount: 0,
       status: 0,
       granted: 0,
       vested: 0,
@@ -232,6 +235,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
     ...base,
     hasGrant: true,
     grantId: Number(grantId),
+    grantCount: grantIds.length,
     status: grant.status,
     granted: Number(grant.totalAmount),
     vested: Number(vested),
