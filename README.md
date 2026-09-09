@@ -23,6 +23,7 @@ and their rationale, and the phased delivery plan.
 | 4 | Lending | ✅ live on testnet — borrow, repay and liquidation all driven end-to-end |
 | 5 | Issuer console | ✅ live, with dispute window + arbitration |
 | 6 | Automation + polish | |
+| 7 | Stablecoin payroll on Privy | designed — see the plan; supplies the income that services a loan |
 
 ## Getting started
 

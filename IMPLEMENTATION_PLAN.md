@@ -1196,8 +1196,74 @@ rather than free safety.
 HSS `scheduleCall` auto-vesting (with keeper fallback), Mirror Node indexer, dividends, seeded demo
 data, recorded fallback video.
 
-**Cut line:** Phases 0–4 are the submission. Phase 5 makes it enterprise-credible. Phase 6 is
-upside. If you are behind, cut Phase 6 first and the cap table from Phase 5 second.
+### Phase 7 — Stablecoin payroll on Privy
+
+**Why this is not a bolt-on.** There is a hole in the product as it stands: an employee borrows
+500 USDC against vested equity and immediately owes 500.000166, because interest accrues from the
+first second. On testnet there is no income anywhere in the system, so the borrowed funds can
+never close the loan and the demo needs a faucet to finish. Payroll supplies the missing half —
+salary is what services the loan. Same issuer, same employees, same wallets, and the faucet
+becomes a product feature instead of a workaround.
+
+**Shape.** An organisation treasury as a Privy **server wallet** holding USDC. HR drafts a payroll
+run (recipients + amounts); the run requires **key-quorum** approval before it can be signed; a
+**policy** on the wallet independently constrains what it is even capable of. Then a batch of
+USDC transfers, with an on-chain receipt.
+
+The quorum is the same instinct as `ESOPVestingController.setArbiter` requiring a multisig with
+`getThreshold() >= 2` — no single person should be able to move other people's money on their own.
+Worth saying in the pitch: the same principle is enforced twice, once in Solidity for forfeiture
+and once in Privy for payment.
+
+**Defence in depth, deliberately.** Quorum answers *who approved this run*; policy answers *what
+this wallet can do at all*. A compromised approver still cannot send to an address outside the
+allowlist, and a policy bug still cannot move funds without approvals. Neither is a substitute for
+the other, and saying so is a stronger answer than presenting one control as sufficient.
+
+**Verified available** in `@privy-io/node@0.34` as installed — no upgrade needed:
+`keyQuorums.create({ authorization_threshold })`, `policies.create({ rules: [{ action, method,
+conditions: [{ field_source: 'ethereum_transaction', ... }] }] })`, plus `wallets`,
+`organizations`, `intents` and `wallet-automations`.
+
+**Policy rules to enforce** (each maps to a real payroll control):
+
+| Rule | Why |
+|---|---|
+| `method: eth_sendTransaction`, recipient ∈ allowlist | payroll may only pay onboarded employees |
+| `to` = MockUSDC only | the treasury cannot touch the ESOP token — payroll must never move equity |
+| per-transaction cap | bounds the blast radius of a bad run |
+
+That second rule is the one worth defending out loud: the payroll wallet is structurally incapable
+of touching the equity ledger, so a payroll compromise cannot become a cap-table compromise.
+
+**Contract surface.** A small `PayrollDisburser` that takes `(address[] recipients, uint256[]
+amounts)`, pulls USDC by allowance from the treasury and emits `SalaryPaid` per employee — an
+on-chain payroll register, so payslips are receipts rather than database rows. Alternative
+considered: pure Privy wallet transfers with no contract, which is less to build and less to
+redeploy but leaves no auditable register. **The contract gets the `solidity-dev` review pass
+before it is written, not after.** It also batches, which on Hedera matters: §5.1 measured batched
+tranches at ~230k gas against ~425k done singly.
+
+**Qualification mapping** (Privy B2B track):
+
+| Requirement | Where it is met |
+|---|---|
+| Privy as a core part | already load-bearing — every employee is a Privy embedded wallet, and §6 relays their signatures |
+| At least one Privy wallet | employee embedded wallets + the org treasury server wallet |
+| Business/organisation use case | an issuer paying its employees |
+| A functional B2B workflow | draft run → quorum approval → disbursement |
+| At least one Privy control | key quorum **and** policy (see above) |
+| Explain how Privy enables it | employees never hold gas or seed phrases, yet receive salary and service loans from the same wallet |
+
+**Ordering note.** This should probably come *before* Phase 6, not after. Phase 6 is explicitly the
+designated cut line below, and payroll is a whole second submission track. The earlier argument for
+doing Phase 6 first was that its `scheduleCall` scheduler would be reused here — that is weaker
+than it looked: a quorum-approved manual run qualifies on its own, and HSS scheduling is an
+enhancement to payroll rather than a prerequisite for it.
+
+**Cut line:** Phases 0–4 are the submission. Phase 5 makes it enterprise-credible. Phase 7 opens a
+second prize track. Phase 6 is upside — if you are behind, cut Phase 6 first and the cap table from
+Phase 5 second.
 
 ---
 
