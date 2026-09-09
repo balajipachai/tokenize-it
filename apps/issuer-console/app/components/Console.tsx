@@ -164,9 +164,12 @@ export function Console() {
       {error && <div className="banner error">{error}</div>}
       {notice && <div className="banner ok">{notice}</div>}
       {busy && (
-        <div className="banner busy">
-          <span className="spinner small" /> {busy.what}
-          {busy.detail && ` · ${busy.detail}`}
+        <div className="overlay" role="status" aria-live="polite">
+          <div className="overlay-card">
+            <span className="spinner big" />
+            <p className="overlay-what">{busy.what}</p>
+            <p className="muted">{busy.detail ?? "Confirm in your wallet, then wait for Hedera."}</p>
+          </div>
         </div>
       )}
 
@@ -291,7 +294,7 @@ export function Console() {
                 <div className="value">{fmt(h.granted)}</div>
                 <div className="label">Granted</div>
               </div>
-              <div className="stat">
+              <div className="stat" title="Vested on this grant, whether or not it has been claimed yet">
                 <div className="value">{fmt(h.vested)}</div>
                 <div className="label">Vested</div>
               </div>
@@ -299,9 +302,9 @@ export function Console() {
                 <div className="value">{fmt(h.unvested)}</div>
                 <div className="label">Unvested</div>
               </div>
-              <div className="stat">
+              <div className="stat" title="Released and unlocked, across every grant this person holds">
                 <div className="value">{fmt(h.spendable)}</div>
-                <div className="label">In wallet</div>
+                <div className="label">Claimed &amp; free</div>
               </div>
             </div>
 
