@@ -139,6 +139,7 @@ contract ESOPLendingPool {
     error Reentrancy();
     error TransferFailed();
     error TokenCallFailed();
+    error NoRequestedAmount();
 
     uint256 private _entered;
 
@@ -248,12 +249,42 @@ contract ESOPLendingPool {
      *      signature) — this contract never reaches into their balance uninvited.
      */
     function borrow(bytes32 partition, uint256 holdId, uint256 amount) external nonReentrant returns (uint256 loanId) {
+        return _open(partition, msg.sender, holdId, amount);
+    }
+
+    /**
+     * @notice Opens a loan on behalf of a borrower, for the amount they signed for.
+     *
+     * @dev Permissionless, and safe to be: the amount is read from the hold's `data`, which
+     *      is inside the EIP-712 struct the borrower signed to create it. So the collateral,
+     *      the escrow, the expiry AND the sum borrowed are all their stated intent — a
+     *      relayer executing this is carrying out an instruction, not making a decision, and
+     *      the funds go to the borrower either way.
+     *
+     *      This is what lets an employee borrow from an account that has never held gas.
+     *      Without it the alternative is a trusted relayer role, which would mean somebody
+     *      else could decide how much debt an employee takes on.
+     */
+    function borrowFor(bytes32 partition, address borrower, uint256 holdId) external nonReentrant returns (uint256) {
+        (, , , , bytes memory data, , ) = esop.getHoldForByPartition(
+            IHoldTypes.HoldIdentifier({partition: partition, tokenHolder: borrower, holdId: holdId})
+        );
+        if (data.length != 32) revert NoRequestedAmount();
+        return _open(partition, borrower, holdId, abi.decode(data, (uint256)));
+    }
+
+    function _open(
+        bytes32 partition,
+        address borrower,
+        uint256 holdId,
+        uint256 amount
+    ) private returns (uint256 loanId) {
         if (amount == 0) revert ZeroAmount();
 
-        bytes32 key = keccak256(abi.encode(partition, msg.sender, holdId));
+        bytes32 key = keccak256(abi.encode(partition, borrower, holdId));
         if (_pledged[key]) revert CollateralAlreadyPledged(holdId);
 
-        (uint256 collateral, uint64 expiry) = _readHold(partition, msg.sender, holdId);
+        (uint256 collateral, uint64 expiry) = _readHold(partition, borrower, holdId);
 
         // A hold with no expiry can never be reclaimed by the holder and is immune to the
         // issuer's clawback for as long as it stands. Accepting one would let a borrower
@@ -272,7 +303,7 @@ contract ESOPLendingPool {
         loanId = nextLoanId++;
         _pledged[key] = true;
         _loans[loanId] = Loan({
-            borrower: msg.sender,
+            borrower: borrower,
             partition: partition,
             holdId: holdId,
             principal: amount,
@@ -285,10 +316,10 @@ contract ESOPLendingPool {
             aprBps: aprBps,
             status: LoanStatus.Active
         });
-        _loansOf[msg.sender].push(loanId);
+        _loansOf[borrower].push(loanId);
 
-        emit LoanOpened(loanId, msg.sender, amount, collateral, expiry);
-        if (!stable.transfer(msg.sender, amount)) revert TransferFailed();
+        emit LoanOpened(loanId, borrower, amount, collateral, expiry);
+        if (!stable.transfer(borrower, amount)) revert TransferFailed();
     }
 
     /**
@@ -331,13 +362,34 @@ contract ESOPLendingPool {
      *      silently stays open. Computing it here removes the race entirely.
      */
     function repayAll(uint256 loanId) external nonReentrant {
+        _repayAllFrom(loanId, msg.sender);
+    }
+
+    /**
+     * @notice Repays a loan in full using the BORROWER's own stablecoin.
+     *
+     * @dev Pairs with `borrowFor`. Repaying means moving the borrower's money, and an
+     *      employee whose account has never held gas cannot send an `approve()` — so the
+     *      authorisation is their EIP-2612 permit signature instead, and this call merely
+     *      executes it. Permissionless for the same reason `borrowFor` is: without an
+     *      allowance from the borrower it simply reverts, so a caller can compel nothing.
+     *
+     *      Kept separate from `repayAll` on purpose. Which account the money comes from is
+     *      exactly the sort of thing that should be visible in the function name rather
+     *      than inferred from who happened to send the transaction.
+     */
+    function repayAllFor(uint256 loanId) external nonReentrant {
+        _repayAllFrom(loanId, _loans[loanId].borrower);
+    }
+
+    function _repayAllFrom(uint256 loanId, address payer) private {
         Loan storage loan = _requireActive(loanId);
         uint256 owed = debtOf(loanId);
 
         loan.repaid += owed;
         loan.status = LoanStatus.Repaid; // effect before interactions
 
-        if (!stable.transferFrom(msg.sender, address(this), owed)) revert TransferFailed();
+        if (!stable.transferFrom(payer, address(this), owed)) revert TransferFailed();
         emit Repaid(loanId, owed, 0);
 
         emit LoanClosed(loanId, _releaseIfPossible(loan));

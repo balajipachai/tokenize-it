@@ -101,6 +101,67 @@ export const controllerEvents = [
   },
 ] as const;
 
+export const poolAbi = [
+  { type: "function", name: "borrowFor", stateMutability: "nonpayable",
+    inputs: [{ name: "partition", type: "bytes32" }, { name: "borrower", type: "address" }, { name: "holdId", type: "uint256" }],
+    outputs: [{ type: "uint256" }] },
+  { type: "function", name: "repayAllFor", stateMutability: "nonpayable",
+    inputs: [{ name: "loanId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "loansOf", stateMutability: "view",
+    inputs: [{ name: "borrower", type: "address" }], outputs: [{ type: "uint256[]" }] },
+  { type: "function", name: "getLoan", stateMutability: "view", inputs: [{ name: "loanId", type: "uint256" }],
+    outputs: [{ type: "tuple", components: [
+      { name: "borrower", type: "address" }, { name: "partition", type: "bytes32" }, { name: "holdId", type: "uint256" },
+      { name: "principal", type: "uint256" }, { name: "repaid", type: "uint256" }, { name: "openedAt", type: "uint64" },
+      { name: "maturity", type: "uint64" }, { name: "aprBps", type: "uint16" }, { name: "status", type: "uint8" }] }] },
+  { type: "function", name: "debtOf", stateMutability: "view", inputs: [{ name: "loanId", type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "ltvOf", stateMutability: "view", inputs: [{ name: "loanId", type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "collateralValue", stateMutability: "view", inputs: [{ name: "tokens", type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxLtvBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint16" }] },
+  { type: "function", name: "aprBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint16" }] },
+  { type: "function", name: "minTerm", stateMutability: "view", inputs: [], outputs: [{ type: "uint64" }] },
+  { type: "function", name: "available", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;
+
+export const erc20Abi = [
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "nonces", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  { type: "function", name: "permit", stateMutability: "nonpayable",
+    inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }, { name: "value", type: "uint256" },
+             { name: "deadline", type: "uint256" }, { name: "v", type: "uint8" }, { name: "r", type: "bytes32" }, { name: "s", type: "bytes32" }],
+    outputs: [] },
+] as const;
+
+export const protectedHoldAbi = [
+  { type: "function", name: "protectedCreateHoldByPartition", stateMutability: "nonpayable",
+    inputs: [
+      { name: "partition", type: "bytes32" },
+      { name: "from", type: "address" },
+      { name: "protectedHold", type: "tuple", components: [
+        { name: "hold", type: "tuple", components: [
+          { name: "amount", type: "uint256" }, { name: "expirationTimestamp", type: "uint256" },
+          { name: "escrow", type: "address" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }] },
+        { name: "deadline", type: "uint256" }, { name: "nonce", type: "uint256" }] },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ type: "bool" }, { type: "uint256" }] },
+  { type: "function", name: "createHoldByPartition", stateMutability: "nonpayable",
+    inputs: [
+      { name: "partition", type: "bytes32" },
+      { name: "hold", type: "tuple", components: [
+        { name: "amount", type: "uint256" }, { name: "expirationTimestamp", type: "uint256" },
+        { name: "escrow", type: "address" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }] },
+    ],
+    outputs: [{ type: "bool" }, { type: "uint256" }] },
+  { type: "function", name: "nonces", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getHoldCountForByPartition", stateMutability: "view",
+    inputs: [{ name: "p", type: "bytes32" }, { name: "h", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getConfigInfo", stateMutability: "view", inputs: [],
+    outputs: [{ name: "resolver_", type: "address" }, { name: "configId_", type: "bytes32" }, { name: "version_", type: "uint256" }] },
+  { type: "function", name: "arePartitionsProtected", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
+] as const;
+
 export const tokenAbi = [
   {
     type: "function",

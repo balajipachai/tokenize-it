@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { Borrow } from "./Borrow";
 
 interface Tranche {
   index: number;
@@ -371,6 +372,8 @@ export function Dashboard() {
           </div>
         </>
       )}
+
+      {position?.hasGrant && <Borrow onChanged={() => void load()} />}
 
       {position && (
         <div className="card">

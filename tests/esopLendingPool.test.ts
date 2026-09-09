@@ -376,6 +376,95 @@ describe("PHASE 4: ESOPLendingPool", () => {
     });
   });
 
+  describe("6. Gasless borrowing and repayment", () => {
+    it("6.1 anyone may open a loan for the amount the borrower signed into the hold", async () => {
+      // The amount lives in the hold's `data`, which is inside the EIP-712 struct the
+      // borrower signed. A relayer is carrying out an instruction, not making a decision.
+      const requested = USDC(3_000);
+      const expiry = (await time.latest()) + 90 * DAY;
+      await asset.connect(borrower).createHoldByPartition(PARTITION, {
+        amount: VESTED,
+        expirationTimestamp: expiry,
+        escrow: poolAddress,
+        to: poolAddress,
+        data: ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [requested]),
+      });
+      const holdId = Number(await asset.getHoldCountForByPartition(PARTITION, borrower.address));
+
+      // Submitted by a third party who is nobody special.
+      await pool.connect(keeper).borrowFor(PARTITION, borrower.address, holdId);
+
+      // The money goes to the borrower, never the submitter.
+      expect(await usdc.balanceOf(borrower.address)).to.equal(requested);
+      expect(await usdc.balanceOf(keeper.address)).to.equal(0);
+      expect((await pool.getLoan(1)).borrower).to.equal(borrower.address);
+    });
+
+    it("6.2 a relayer cannot inflate the loan beyond what was signed", async () => {
+      const requested = USDC(1_000);
+      const expiry = (await time.latest()) + 90 * DAY;
+      await asset.connect(borrower).createHoldByPartition(PARTITION, {
+        amount: VESTED,
+        expirationTimestamp: expiry,
+        escrow: poolAddress,
+        to: poolAddress,
+        data: ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [requested]),
+      });
+      const holdId = Number(await asset.getHoldCountForByPartition(PARTITION, borrower.address));
+
+      await pool.connect(keeper).borrowFor(PARTITION, borrower.address, holdId);
+      // Even though the collateral would support 5,000, only the signed 1,000 was lent.
+      expect(await usdc.balanceOf(borrower.address)).to.equal(requested);
+    });
+
+    it("6.3 a hold with no requested amount cannot be borrowed against by a relayer", async () => {
+      const holdId = await pledge(VESTED); // pledge() writes empty data
+      await expect(
+        pool.connect(keeper).borrowFor(PARTITION, borrower.address, holdId),
+      ).to.be.revertedWithCustomError(pool, "NoRequestedAmount");
+    });
+
+    it("6.4 repayment works from a signed permit, so the borrower needs no gas", async () => {
+      const holdId = await pledge(VESTED);
+      await pool.connect(borrower).borrow(PARTITION, holdId, USDC(5_000));
+      await usdc.mint(borrower.address, USDC(100));
+
+      const owed = await pool.debtOf(1);
+      const value = owed + USDC(50); // headroom for interest accruing before it mines
+      const deadline = (await time.latest()) + 3600;
+      const nonce = await usdc.nonces(borrower.address);
+
+      const signature = await borrower.signTypedData(
+        {
+          name: await usdc.name(),
+          version: "1",
+          chainId: (await ethers.provider.getNetwork()).chainId,
+          verifyingContract: await usdc.getAddress(),
+        },
+        {
+          Permit: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" },
+          ],
+        },
+        { owner: borrower.address, spender: poolAddress, value, nonce, deadline },
+      );
+      const { v, r, s: sv } = ethers.Signature.from(signature);
+
+      // Both submitted by the relayer; the borrower only ever signed.
+      await usdc.connect(keeper).permit(borrower.address, poolAddress, value, deadline, v, r, sv);
+      // repayAllFor, not repayAll: the money is the borrower's, and saying so in the
+      // function name beats inferring it from whoever sent the transaction.
+      await pool.connect(keeper).repayAllFor(1);
+
+      expect(Number((await pool.getLoan(1)).status)).to.equal(2); // Repaid
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+    });
+  });
+
   describe("5. The issuer keeps control of pledged equity", () => {
     it("5.1 a suspended borrower cannot be liquidated INTO a compliance failure", async () => {
       // Freezing the borrower blocks transfers, so liquidation reverts rather than

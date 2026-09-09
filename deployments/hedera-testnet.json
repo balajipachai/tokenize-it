@@ -46,19 +46,19 @@
   ],
   "lending": {
     "pool": {
-      "address": "0x0f286F61d1bC1196098fFF3C302EC118F525cbF6",
+      "address": "0x7aBB4aF28Af873d0b504a2C118f76a754D1C93B4",
       "contractIdentifier": "contracts/tokenize-it/lending/ESOPLendingPool.sol:ESOPLendingPool",
-      "creationTxHash": "0x1e47965347748861203812956b3ab521e7ac150f868569d01b9f11d96c3170ed",
+      "creationTxHash": "0x3a3efee38b65a73e1e15840d1f785a2a43834536b90a89f8b23a0ab9bd504fb1",
       "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
     },
     "navOracle": {
-      "address": "0x5E3fa4B87Ab7A7359A21196d59E4b1943CB29c41",
+      "address": "0x3F59c956d9850147623adb1B3FB10B5e04a1FC80",
       "contractIdentifier": "contracts/tokenize-it/lending/EsopNavOracle.sol:EsopNavOracle",
       "navUsd": "2.00",
       "basis": "409A valuation 2026-Q1 (demo)"
     },
     "stablecoin": {
-      "address": "0x80f3F992d1771BA7562c1749dc09695fa285876a",
+      "address": "0x6f928358707997E80990CEDc17E8956F1a2a6492",
       "contractIdentifier": "contracts/tokenize-it/lending/MockUSDC.sol:MockUSDC",
       "symbol": "USDC",
       "decimals": 6,
@@ -68,6 +68,6 @@
       "address": "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5",
       "source": "Chainlink USDC/USD on Hedera testnet"
     },
-    "deployedAt": "2026-09-09T10:56:32.754Z"
+    "deployedAt": "2026-09-09T11:53:40.214Z"
   }
 }
