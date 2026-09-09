@@ -8,7 +8,7 @@
 // the pool KYC'd and allowlisted.
 
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers.js";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { deployEquityTokenFixture, executeRbac, MAX_UINT256 } from "@test";
@@ -19,6 +19,17 @@ const PARTITION = "0x00000000000000000000000000000000000000000000000000000000000
 const DAY = 24 * 60 * 60;
 
 const VESTED = 10_000; // ESOP shares the borrower holds free and clear
+
+/**
+ * ATS derives a per-partition role as keccak256(ROLE_PROTECTED_PARTITIONS_PARTICIPANT ++ partition).
+ * Packed, not ABI-encoded — the two differ, and using the wrong one grants a role nothing checks.
+ */
+const PARTITION_PARTICIPANT_ROLE = ethers.keccak256(
+  ethers.solidityPacked(
+    ["bytes32", "bytes32"],
+    ["0xda17771b6b3d06197fabbe8db1d7586004df4869992b9c7c7fccec5f36dcf604", PARTITION],
+  ),
+);
 const NAV_8DP = 2_00000000n; // $2.00 per share
 const PEG_8DP = 1_00000000n; // $1.00
 const USDC = (n: number) => BigInt(Math.round(n * 1e6));
@@ -36,17 +47,34 @@ describe("PHASE 4: ESOPLendingPool", () => {
   let lp: HardhatEthersSigner;
   let keeper: HardhatEthersSigner;
 
-  /** Places a hold naming the pool as escrow and destination, the way the portal relays it. */
+  /**
+   * Places a hold naming the pool as escrow and destination, the way the portal relays it.
+   *
+   * The id comes from the event, NOT from `getHoldCountForByPartition`. Ids increase for the
+   * life of a holder while the count drops whenever a hold is released, so the two diverge as
+   * soon as anything has been released or repaid — and the count then names an older, dead
+   * hold. This helper used the count and was silently correct only because no test had ever
+   * released a hold before pledging again.
+   */
   async function pledge(amount: number, expiresIn = 90 * DAY): Promise<number> {
     const expiry = (await time.latest()) + expiresIn;
-    await asset.connect(borrower).createHoldByPartition(PARTITION, {
+    const tx = await asset.connect(borrower).createHoldByPartition(PARTITION, {
       amount,
       expirationTimestamp: expiry,
       escrow: poolAddress,
       to: poolAddress,
       data: EMPTY_HEX_BYTES,
     });
-    return Number(await asset.getHoldCountForByPartition(PARTITION, borrower.address));
+    const receipt = await tx.wait();
+    for (const log of receipt?.logs ?? []) {
+      try {
+        const parsed = asset.interface.parseLog({ topics: [...log.topics], data: log.data });
+        if (parsed?.name === "HeldByPartition") return Number(parsed.args.holdId);
+      } catch {
+        /* logs from other contracts do not parse */
+      }
+    }
+    throw new Error("Hold created but no hold id in the receipt.");
   }
 
   beforeEach(async () => {
@@ -98,6 +126,10 @@ describe("PHASE 4: ESOPLendingPool", () => {
       { role: ATS_ROLES.ROLE_KYC, members: [admin.address] },
       { role: ATS_ROLES.ROLE_CONTROL_LIST, members: [admin.address] },
       { role: ATS_ROLES.ROLE_SSI_MANAGER, members: [admin.address] },
+      // Lets the pool submit a borrower's signed hold itself, which is what makes
+      // `pledgeAndBorrow` atomic. It governs who may RELAY a hold, never whose tokens move —
+      // the borrower's signature is still required, as 8.5 checks.
+      { role: PARTITION_PARTICIPANT_ROLE, members: [poolAddress] },
     ]);
     await asset.connect(admin).addIssuer(admin.address);
 
@@ -462,6 +494,193 @@ describe("PHASE 4: ESOPLendingPool", () => {
 
       expect(Number((await pool.getLoan(1)).status)).to.equal(2); // Repaid
       expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+    });
+  });
+
+  describe("8. Pledging and borrowing atomically", () => {
+    // The rest of this suite runs with partitions UNprotected so the borrower can place
+    // their own hold directly, which keeps those tests about lending rather than signatures.
+    // This block is the opposite: it exercises the production configuration, where partitions
+    // are protected and the only way a hold reaches the token is relayed with a signature.
+    beforeEach(async () => {
+      await executeRbac(asset, [{ role: ATS_ROLES.ROLE_PROTECTED_PARTITIONS, members: [admin.address] }]);
+      await asset.connect(admin).protectPartitions();
+    });
+
+    /** The signed envelope, with the sum to borrow encoded into the hold's own data. */
+    async function signedHold(shares: number, amount: bigint, expiresIn = 90 * DAY) {
+      const expiry = (await time.latest()) + expiresIn;
+      const nonce = (await asset.nonces(borrower.address)) + 1n;
+      const hold = {
+        amount: BigInt(shares),
+        expirationTimestamp: BigInt(expiry),
+        escrow: poolAddress,
+        to: poolAddress,
+        data: ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [amount]),
+      };
+      const message = { _partition: PARTITION, _from: borrower.address, _protectedHold: { hold, deadline: BigInt(expiry), nonce } };
+      // Domain exactly as spike #2 proved it: the ERC-20 metadata name (not `name()`), the
+      // resolver-proxy CONFIG version (not the conventional "1"), and the live chain id.
+      const domain = {
+        name: (await asset.getERC20Metadata()).info.name,
+        version: (await asset.getConfigInfo()).version_.toString(),
+        chainId: await network.provider.send("eth_chainId"),
+        verifyingContract: await asset.getAddress(),
+      };
+      const signature = await borrower.signTypedData(
+        domain,
+        {
+          Hold: [
+            { name: "amount", type: "uint256" },
+            { name: "expirationTimestamp", type: "uint256" },
+            { name: "escrow", type: "address" },
+            { name: "to", type: "address" },
+            { name: "data", type: "bytes" },
+          ],
+          ProtectedHold: [
+            { name: "hold", type: "Hold" },
+            { name: "deadline", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+          ],
+          protectedCreateHoldByPartition: [
+            { name: "_partition", type: "bytes32" },
+            { name: "_from", type: "address" },
+            { name: "_protectedHold", type: "ProtectedHold" },
+          ],
+        },
+        message,
+      );
+      return { protectedHold: message._protectedHold, signature };
+    }
+
+    it("8.1 THE POINT: a failed loan leaves NO hold behind", async () => {
+      // Ask for more than the LTV allows, so `_open` reverts after the hold would have been made.
+      const { protectedHold, signature } = await signedHold(VESTED, USDC(9_999));
+
+      await expect(
+        pool.connect(keeper).pledgeAndBorrow(PARTITION, borrower.address, protectedHold, signature),
+      ).to.be.revertedWithCustomError(pool, "ExceedsMaxLtv");
+
+      // Everything is exactly as it started. This is what the two-transaction flow could not promise.
+      expect(await asset.getHeldAmountForByPartition(PARTITION, borrower.address)).to.equal(0);
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+      expect(await asset.getHoldCountForByPartition(PARTITION, borrower.address)).to.equal(0);
+    });
+
+    it("8.2 pledges and lends in a single transaction", async () => {
+      const { protectedHold, signature } = await signedHold(VESTED, USDC(5_000));
+      await pool.connect(keeper).pledgeAndBorrow(PARTITION, borrower.address, protectedHold, signature);
+
+      expect(await usdc.balanceOf(borrower.address)).to.equal(USDC(5_000));
+      expect(await asset.getHeldAmountForByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+      // Still never the pool's.
+      expect(await asset.balanceOfByPartition(PARTITION, poolAddress)).to.equal(0);
+    });
+
+    it("8.3 refuses a hold escrowed to anyone but this pool", async () => {
+      const { protectedHold, signature } = await signedHold(VESTED, USDC(5_000));
+      const diverted = { ...protectedHold, hold: { ...protectedHold.hold, escrow: keeper.address } };
+
+      await expect(
+        pool.connect(keeper).pledgeAndBorrow(PARTITION, borrower.address, diverted, signature),
+      ).to.be.revertedWithCustomError(pool, "PoolNotEscrow");
+    });
+
+    it("8.4 refuses a hold carrying no requested amount", async () => {
+      const { protectedHold, signature } = await signedHold(VESTED, USDC(5_000));
+      const empty = { ...protectedHold, hold: { ...protectedHold.hold, data: "0x" } };
+
+      await expect(
+        pool.connect(keeper).pledgeAndBorrow(PARTITION, borrower.address, empty, signature),
+      ).to.be.revertedWithCustomError(pool, "NoRequestedAmount");
+    });
+
+    it("8.5 rejects someone else's signature -- the pool's role does not let it pledge for anyone", async () => {
+      const { protectedHold } = await signedHold(VESTED, USDC(5_000));
+      const forged = await lp.signTypedData(
+        { name: await asset.name(), version: "1", chainId: 31337, verifyingContract: await asset.getAddress() },
+        { Fake: [{ name: "x", type: "uint256" }] },
+        { x: 1 },
+      );
+      await expect(pool.connect(keeper).pledgeAndBorrow(PARTITION, borrower.address, protectedHold, forged)).to.be
+        .reverted;
+    });
+  });
+
+  describe("7. Recovering a pledge that never became a loan", () => {
+    it("7.1 releases a hold with no loan against it, back to the borrower", async () => {
+      const holdId = await pledge(VESTED);
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(0);
+
+      await pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, holdId);
+
+      // Back to free, and it never went anywhere else on the way.
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+      expect(await asset.getHeldAmountForByPartition(PARTITION, borrower.address)).to.equal(0);
+      expect(await asset.balanceOfByPartition(PARTITION, poolAddress)).to.equal(0);
+    });
+
+    it("7.2 refuses to release collateral backing an active loan", async () => {
+      const holdId = await pledge(VESTED);
+      await pool.connect(borrower).borrow(PARTITION, holdId, USDC(5_000));
+
+      await expect(
+        pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, holdId),
+      ).to.be.revertedWithCustomError(pool, "CollateralAlreadyPledged");
+    });
+
+    it("7.3 a third party cannot release it -- this is the borrow-DoS guard", async () => {
+      const holdId = await pledge(VESTED);
+      await expect(
+        pool.connect(keeper).releaseUnusedHold(PARTITION, borrower.address, holdId),
+      ).to.be.revertedWithCustomError(pool, "NotBorrower");
+    });
+
+    it("7.4 the admin can release on the borrower's behalf, and it still goes to the borrower", async () => {
+      const holdId = await pledge(VESTED);
+      await pool.connect(admin).releaseUnusedHold(PARTITION, borrower.address, holdId);
+
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+      expect(await asset.balanceOfByPartition(PARTITION, admin.address)).to.equal(0);
+    });
+
+    it("7.5 points at reclaim once the hold has expired", async () => {
+      const holdId = await pledge(VESTED, 30 * DAY);
+      await time.increase(31 * DAY);
+
+      await expect(
+        pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, holdId),
+      ).to.be.revertedWithCustomError(pool, "HoldExpiredUseReclaim");
+    });
+
+    it("7.6 and after expiry ANYONE can reclaim it on the token, with no pool involvement", async () => {
+      const holdId = await pledge(VESTED, 30 * DAY);
+      await time.increase(31 * DAY);
+
+      // This is what stops the access control above from ever stranding a borrower.
+      await asset
+        .connect(keeper)
+        .reclaimHoldByPartition({ partition: PARTITION, tokenHolder: borrower.address, holdId });
+
+      expect(await asset.balanceOfByPartition(PARTITION, borrower.address)).to.equal(VESTED);
+    });
+
+    it("7.7 refuses when there is nothing left to release", async () => {
+      const holdId = await pledge(VESTED);
+      await pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, holdId);
+
+      await expect(
+        pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, holdId),
+      ).to.be.revertedWithCustomError(pool, "ZeroAmount");
+    });
+
+    it("7.8 leaves the borrower able to pledge again -- no stale pledge flag", async () => {
+      const first = await pledge(VESTED);
+      await pool.connect(borrower).releaseUnusedHold(PARTITION, borrower.address, first);
+
+      const second = await pledge(VESTED);
+      await pool.connect(borrower).borrow(PARTITION, second, USDC(5_000));
+      expect(await usdc.balanceOf(borrower.address)).to.equal(USDC(5_000));
     });
   });
 

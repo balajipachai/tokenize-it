@@ -102,6 +102,28 @@ export const controllerEvents = [
 ] as const;
 
 export const poolAbi = [
+  // Places the signed hold AND opens the loan in one transaction, so a failure cannot leave
+  // the borrower's shares held against a loan that never opened.
+  { type: "function", name: "pledgeAndBorrow", stateMutability: "nonpayable",
+    inputs: [
+      { name: "partition", type: "bytes32" },
+      { name: "borrower", type: "address" },
+      { name: "protectedHold", type: "tuple", components: [
+        { name: "hold", type: "tuple", components: [
+          { name: "amount", type: "uint256" },
+          { name: "expirationTimestamp", type: "uint256" },
+          { name: "escrow", type: "address" },
+          { name: "to", type: "address" },
+          { name: "data", type: "bytes" },
+        ] },
+        { name: "deadline", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+      ] },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ type: "uint256" }] },
+  // Kept for opening a loan against a hold that already exists — the self-service path, and
+  // recovery for anything stranded before pledgeAndBorrow existed.
   { type: "function", name: "borrowFor", stateMutability: "nonpayable",
     inputs: [{ name: "partition", type: "bytes32" }, { name: "borrower", type: "address" }, { name: "holdId", type: "uint256" }],
     outputs: [{ type: "uint256" }] },

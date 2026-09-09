@@ -26,6 +26,10 @@ const MAX_UINT256 = ethersLib.MaxUint256;
  */
 const CHAINLINK_USDC_USD = "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5";
 
+/** ROLE_PROTECTED_PARTITIONS_PARTICIPANT, from ATS contracts/constants/roles.sol. */
+const ROLE_PROTECTED_PARTITIONS_PARTICIPANT =
+  "0xda17771b6b3d06197fabbe8db1d7586004df4869992b9c7c7fccec5f36dcf604";
+
 const DAY = 24 * 60 * 60;
 const NAV_USD = process.env.NAV_USD ?? "2.00";
 const NAV_BASIS = process.env.NAV_BASIS ?? "409A valuation 2026-Q1 (demo)";
@@ -97,6 +101,21 @@ async function main() {
   if (!(await token.isInControlList(poolAddress))) {
     await (await token.addToControlList(poolAddress)).wait();
     console.log("  -> allowlisted");
+  }
+
+  // Lets the pool submit a borrower's signed hold itself, which is what makes
+  // `pledgeAndBorrow` atomic — the hold and the loan land in one transaction, so a failure
+  // cannot strand someone's shares against a loan that never opened.
+  //
+  // The role decides who may RELAY a signed hold, never whose tokens may move: every call
+  // still carries the holder's own EIP-712 signature, so the pool cannot pledge anybody's
+  // shares on its own initiative. Same grant the portal's relayer needs, same reasoning.
+  const partitionRole = ethersLib.keccak256(
+    ethersLib.solidityPacked(["bytes32", "bytes32"], [ROLE_PROTECTED_PARTITIONS_PARTICIPANT, PARTITION]),
+  );
+  if (!(await token.hasRole(partitionRole, poolAddress))) {
+    await (await token.grantRole(partitionRole, poolAddress)).wait();
+    console.log("  -> granted the partition participant role (enables pledgeAndBorrow)");
   }
 
   step("6", `Seeding ${LIQUIDITY.toLocaleString("en-US")} USDC of liquidity...`);

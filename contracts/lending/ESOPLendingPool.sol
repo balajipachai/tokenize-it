@@ -105,6 +105,8 @@ contract ESOPLendingPool {
     event Repaid(uint256 indexed loanId, uint256 amount, uint256 outstanding);
     event LoanClosed(uint256 indexed loanId, uint256 collateralReleased);
     event Liquidated(uint256 indexed loanId, uint256 debt, uint256 collateralTaken, uint256 surplusReturned);
+    event UnusedHoldReleased(address indexed borrower, bytes32 partition, uint256 holdId, uint256 amount);
+    event PledgedAndBorrowed(address indexed borrower, bytes32 partition, uint256 holdId, uint256 indexed loanId);
     // slither-disable-next-line unindexed-event-address
     // Feed changes are rare and read from a full log, not filtered by address.
     event FeedsSet(address navFeed, address stableFeed, uint64 navMaxAge, uint64 stableMaxAge);
@@ -140,6 +142,8 @@ contract ESOPLendingPool {
     error TransferFailed();
     error TokenCallFailed();
     error NoRequestedAmount();
+    /// @dev Carries a different remedy from the other guards: reclaim on the token, not release here.
+    error HoldExpiredUseReclaim(uint64 expiry);
 
     uint256 private _entered;
 
@@ -271,6 +275,63 @@ contract ESOPLendingPool {
         );
         if (data.length != 32) revert NoRequestedAmount();
         return _open(partition, borrower, holdId, abi.decode(data, (uint256)));
+    }
+
+    /**
+     * @notice Places the borrower's signed hold and opens the loan against it, in one call.
+     *
+     * @dev Prefer this over `borrowFor`. Pledging and borrowing are one intent — nobody wants
+     *      their shares locked up without the money — but splitting them across two
+     *      transactions makes them two outcomes. If the hold lands and the loan does not, the
+     *      borrower is left holding neither: shares immobilised, nothing borrowed. That is not
+     *      a state anyone asked for, and it happened in testing.
+     *
+     *      Doing both here makes it atomic. If `_open` reverts for any reason — the pool ran
+     *      dry, the price moved, the term is wrong — the hold creation reverts with it and the
+     *      borrower is exactly where they started. There is no partial outcome to recover from.
+     *
+     *      It also removes a whole class of bug: `protectedCreateHoldByPartition` returns the
+     *      new id directly, so nothing has to infer it afterwards. Inferring it from
+     *      `getHoldCountForByPartition` is wrong — ids keep climbing while the count falls on
+     *      release — and that mistake cost a reverted borrow before it was found.
+     *
+     *      Requires this pool to hold the partition's participant role, which is a deployment
+     *      step (`testnet:grant-relayer`, pointed at the pool). The role governs who may
+     *      submit a signed hold, never whose tokens may move: the signature still has to be
+     *      the borrower's, so the pool cannot pledge anyone's shares on its own.
+     *
+     *      Permissionless, like `borrowFor`, and for the same reason — every term of the loan
+     *      comes out of the struct the borrower signed.
+     *
+     * @param partition     The partition the shares sit on.
+     * @param borrower      Whose shares are pledged and who receives the funds.
+     * @param protectedHold The signed hold: amount, expiry, escrow, destination, and the sum
+     *                      to borrow encoded in `hold.data`.
+     * @param signature     The borrower's EIP-712 signature over `protectedHold`.
+     */
+    function pledgeAndBorrow(
+        bytes32 partition,
+        address borrower,
+        IHoldTypes.ProtectedHold calldata protectedHold,
+        bytes calldata signature
+    ) external nonReentrant returns (uint256 loanId) {
+        // Check the destination before creating anything. A hold escrowed to someone else
+        // would leave this pool lending against collateral it could never seize, and the
+        // signature alone does not prevent that — the borrower could have signed it happily.
+        if (protectedHold.hold.escrow != address(this)) revert PoolNotEscrow(protectedHold.hold.escrow);
+        if (protectedHold.hold.to != address(this)) revert PoolNotDestination(protectedHold.hold.to);
+        if (protectedHold.hold.data.length != 32) revert NoRequestedAmount();
+
+        (bool created, uint256 holdId) = esop.protectedCreateHoldByPartition(
+            partition,
+            borrower,
+            protectedHold,
+            signature
+        );
+        if (!created) revert TokenCallFailed();
+
+        loanId = _open(partition, borrower, holdId, abi.decode(protectedHold.hold.data, (uint256)));
+        emit PledgedAndBorrowed(borrower, partition, holdId, loanId);
     }
 
     function _open(
@@ -437,6 +498,77 @@ contract ESOPLendingPool {
         if (surplus > 0 && !esop.releaseHoldByPartition(id, surplus)) revert TokenCallFailed();
 
         emit Liquidated(loanId, debt, take, surplus);
+    }
+
+    /**
+     * @notice Returns collateral from a hold this pool escrows but never lent against.
+     *
+     * @dev Pledging and borrowing are two transactions. If the first lands and the second
+     *      does not — the pool ran dry, the price moved, the relayer died — the borrower is
+     *      left with their shares held and no loan to show for it. Every other release path
+     *      here runs through a loan, so before this function there was nothing that could
+     *      free those shares.
+     *
+     *      NOT permissionless, unlike `borrow`, `borrowFor` and `liquidate`. Those can be
+     *      called by anyone because anyone calling them advances the borrower's own stated
+     *      intent. This one is the opposite: releasing an unpledged hold *cancels* an intent,
+     *      so leaving it open would let anyone front-run `borrowFor` and make every borrow
+     *      fail, repeatedly and cheaply. Restricting it to the borrower and the admin closes
+     *      that off without stranding anyone — see below.
+     *
+     *      Employees never pay gas, so they cannot call this themselves and the portal cannot
+     *      relay it for them. That is a deliberate trade, not an oversight: the issuer can
+     *      always recover on their behalf, and once the hold expires
+     *      `reclaimHoldByPartition` on the token is permissionless and needs neither this
+     *      pool nor anyone's permission. Nobody is ever permanently stuck; the worst case is
+     *      waiting out the term.
+     *
+     * @param partition The partition the hold sits on.
+     * @param borrower  The hold's owner. Collateral always returns to them, never to the caller.
+     * @param holdId    Which of the borrower's holds to release.
+     * @return released The amount handed back to the borrower's free balance.
+     */
+    function releaseUnusedHold(
+        bytes32 partition,
+        address borrower,
+        uint256 holdId
+    ) external nonReentrant returns (uint256 released) {
+        if (msg.sender != borrower && msg.sender != admin) revert NotBorrower();
+
+        // The guard that matters: this must not be collateral for a live loan.
+        if (_pledged[keccak256(abi.encode(partition, borrower, holdId))]) {
+            revert CollateralAlreadyPledged(holdId);
+        }
+
+        // Read raw rather than through `_readHold`. That helper reports a missing hold as
+        // `PoolNotEscrow(0x0)`, because ATS deletes the record once a hold is fully released
+        // and the escrow then reads as the zero address. For the lending paths that error is
+        // right; here it would tell someone their pool is wrong when the truth is that there
+        // is nothing left to recover.
+        (uint256 collateral, uint256 expiry, address escrow, address destination, , , ) = esop.getHoldForByPartition(
+            IHoldTypes.HoldIdentifier({ partition: partition, tokenHolder: borrower, holdId: holdId })
+        );
+        if (escrow == address(0) || collateral == 0) revert ZeroAmount();
+        if (escrow != address(this)) revert PoolNotEscrow(escrow);
+        if (destination != address(this)) revert PoolNotDestination(destination);
+
+        // ATS refuses to release an expired hold — only the holder may reclaim it after that.
+        // Say so plainly rather than letting the token revert with a bare selector, because
+        // the remedy is a different call on a different contract.
+        if (block.timestamp >= expiry) revert HoldExpiredUseReclaim(uint64(expiry));
+
+        // No pool state to write first: `_pledged` is already false, which is this function's
+        // precondition rather than something it clears. `nonReentrant` is the belt to CEI's
+        // braces, since the token is an upgradeable diamond and could call back.
+        if (
+            !esop.releaseHoldByPartition(
+                IHoldTypes.HoldIdentifier({ partition: partition, tokenHolder: borrower, holdId: holdId }),
+                collateral
+            )
+        ) revert TokenCallFailed();
+
+        emit UnusedHoldReleased(borrower, partition, holdId, collateral);
+        return collateral;
     }
 
     // ------------------------------------------------------------------ views

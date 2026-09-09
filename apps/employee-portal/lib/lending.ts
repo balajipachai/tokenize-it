@@ -1,6 +1,5 @@
 import "server-only";
 import {
-  decodeEventLog,
   encodeAbiParameters,
   formatUnits,
   recoverTypedDataAddress,
@@ -264,77 +263,8 @@ const REVERT_REASONS: Record<string, string> = {
  * Replaying the call at the mined block is what turns the bare selector into a reason.
  */
 async function confirm(hash: Hex, step: string): Promise<Hex> {
-  await confirmReceipt(hash, step);
-  return hash;
-}
-
-/** Both hold-created events carry the same shape; either may appear depending on the path taken. */
-const holdEventAbi = [
-  {
-    type: "event",
-    name: "ProtectedHeldByPartition",
-    inputs: [
-      { name: "operator", type: "address", indexed: true },
-      { name: "tokenHolder", type: "address", indexed: true },
-      { name: "partition", type: "bytes32", indexed: false },
-      { name: "holdId", type: "uint256", indexed: false },
-      {
-        name: "hold",
-        type: "tuple",
-        indexed: false,
-        components: [
-          { name: "amount", type: "uint256" },
-          { name: "expirationTimestamp", type: "uint256" },
-          { name: "escrow", type: "address" },
-          { name: "to", type: "address" },
-          { name: "data", type: "bytes" },
-        ],
-      },
-      { name: "operatorData", type: "bytes", indexed: false },
-    ],
-  },
-  {
-    type: "event",
-    name: "HeldByPartition",
-    inputs: [
-      { name: "operator", type: "address", indexed: true },
-      { name: "tokenHolder", type: "address", indexed: true },
-      { name: "partition", type: "bytes32", indexed: false },
-      { name: "holdId", type: "uint256", indexed: false },
-      {
-        name: "hold",
-        type: "tuple",
-        indexed: false,
-        components: [
-          { name: "amount", type: "uint256" },
-          { name: "expirationTimestamp", type: "uint256" },
-          { name: "escrow", type: "address" },
-          { name: "to", type: "address" },
-          { name: "data", type: "bytes" },
-        ],
-      },
-      { name: "operatorData", type: "bytes", indexed: false },
-    ],
-  },
-] as const;
-
-/** Pulls the new hold's id out of a receipt, matching on the holder so an unrelated log cannot stand in. */
-function holdIdFromLogs(logs: readonly { topics: readonly Hex[]; data: Hex }[], holder: Address): bigint | null {
-  for (const log of logs) {
-    try {
-      const parsed = decodeEventLog({ abi: holdEventAbi, topics: log.topics as never, data: log.data });
-      const args = parsed.args as unknown as { tokenHolder: Address; holdId: bigint };
-      if (args.tokenHolder?.toLowerCase() === holder.toLowerCase()) return args.holdId;
-    } catch {
-      /* logs from other contracts in the same transaction simply do not decode */
-    }
-  }
-  return null;
-}
-
-async function confirmReceipt(hash: Hex, step: string) {
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (receipt.status === "success") return receipt;
+  if (receipt.status === "success") return hash;
 
   let reason = "";
   try {
@@ -385,51 +315,29 @@ export async function relayBorrow(
     );
   }
 
-  const protectedOn = await publicClient.readContract({
-    address: d.esopToken.address,
-    abi: protectedHoldAbi,
-    functionName: "arePartitionsProtected",
-  });
-
-  // A token with unprotected partitions has no protected* entry point, so fall back to the
-  // direct call. The employee's signature is then unused rather than unsafe — the hold is
-  // still over their own balance and still names the pool as escrow.
-  const holdTx = protectedOn
-    ? await w.writeContract({
-        address: d.esopToken.address,
-        abi: protectedHoldAbi,
-        functionName: "protectedCreateHoldByPartition",
-        args: [d.esopToken.partition, wallet, pledge.message._protectedHold as never, signature],
-        gas: 900_000n,
-        ...overrides,
-      })
-    : await w.writeContract({
-        address: d.esopToken.address,
-        abi: protectedHoldAbi,
-        functionName: "createHoldByPartition",
-        args: [d.esopToken.partition, pledge.message._protectedHold.hold as never],
-        gas: 900_000n,
-        ...overrides,
-      });
-  const holdReceipt = await confirmReceipt(holdTx, "Pledging your shares");
-
-  // Take the id from the event, never from `getHoldCountForByPartition`. Hold ids increase
-  // for the life of the holder, but the count drops when a hold is released — so after the
-  // first loan is repaid the two diverge, and the count then names an older, released hold.
-  // Borrowing against that reads empty `data` and reverts with NoRequestedAmount.
-  const holdId = holdIdFromLogs(holdReceipt.logs, wallet);
-  if (holdId === null) throw new Error("The pledge went through but its hold id was not in the receipt.");
-
-  const borrowTx = await w.writeContract({
+  // ONE transaction. The pool places the signed hold and opens the loan against it in the
+  // same call, so there is no in-between state to be stranded in: either the borrower has
+  // collateral and a loan, or they have neither and can simply try again.
+  //
+  // This replaces a two-transaction flow whose failure mode was real rather than theoretical
+  // — a hold landed, `borrowFor` reverted, and an employee's shares sat immobilised against
+  // a loan that did not exist until someone recovered it by hand.
+  //
+  // It also removes the need to work out the new hold's id at all: the pool receives it as a
+  // return value from the token rather than anyone parsing it back out of a receipt.
+  const tx = await w.writeContract({
     address: l.pool,
     abi: poolAbi,
-    functionName: "borrowFor",
-    args: [d.esopToken.partition, wallet, holdId],
-    gas: 900_000n,
+    functionName: "pledgeAndBorrow",
+    args: [d.esopToken.partition, wallet, pledge.message._protectedHold as never, signature],
+    // Sized from measured usage: the hold leg ran ~470k and the loan leg ~360k, so ~830k of
+    // real work. Hedera charges most of the offered limit, which is precisely why doing this
+    // as one call is cheaper than two 900k offers.
+    gas: 1_150_000n,
     ...overrides,
   });
-  await confirm(borrowTx, "Opening the loan");
-  return { holdTx, borrowTx };
+  await confirm(tx, "Pledging your shares and opening the loan");
+  return { holdTx: tx, borrowTx: tx };
 }
 
 /**

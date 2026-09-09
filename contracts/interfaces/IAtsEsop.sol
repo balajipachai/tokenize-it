@@ -23,6 +23,22 @@ interface IHoldTypes {
         address tokenHolder;
         uint256 holdId;
     }
+
+    struct Hold {
+        uint256 amount;
+        uint256 expirationTimestamp;
+        address escrow;
+        address to;
+        bytes data;
+    }
+
+    /// @dev The envelope the holder signs. `deadline` and `nonce` are checked against ATS's
+    ///      own nonce slot for that holder, so a signature is single-use.
+    struct ProtectedHold {
+        Hold hold;
+        uint256 deadline;
+        uint256 nonce;
+    }
 }
 
 interface IAtsEsop {
@@ -42,6 +58,17 @@ interface IAtsEsop {
             bytes memory operatorData,
             uint8 thirdPartyType
         );
+
+    /// @dev Creates a hold on the holder's behalf, authorised by their EIP-712 signature.
+    ///      Returns the new hold's id, which is what lets a caller place a hold and act on it
+    ///      in one transaction. The CALLER needs the partition's participant role; the
+    ///      signature only proves the holder consented.
+    function protectedCreateHoldByPartition(
+        bytes32 partition,
+        address from,
+        IHoldTypes.ProtectedHold calldata protectedHold,
+        bytes calldata signature
+    ) external returns (bool success, uint256 holdId);
 
     /// @dev Only the escrow may execute a hold, and only to a KYC'd, allowlisted address.
     function executeHoldByPartition(
