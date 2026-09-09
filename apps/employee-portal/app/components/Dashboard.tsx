@@ -10,6 +10,15 @@ interface Tranche {
   released: boolean;
   clawedBack: boolean;
   vested: boolean;
+  txHash: string | null;
+}
+
+interface Compliance {
+  kycGranted: boolean;
+  allowlisted: boolean;
+  credentialId: string | null;
+  issuer: string | null;
+  validTo: number | null;
 }
 
 interface Position {
@@ -26,6 +35,18 @@ interface Position {
   locked: number;
   nextVestAt: number | null;
   tranches: Tranche[];
+  compliance: Compliance;
+}
+
+const HASHSCAN = "https://hashscan.io/testnet";
+const shortHash = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+
+function TxLink({ hash, label }: { hash: string; label?: string }) {
+  return (
+    <a className="txlink" href={`${HASHSCAN}/transaction/${hash}`} target="_blank" rel="noreferrer">
+      {label ?? shortHash(hash)}
+    </a>
+  );
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -66,6 +87,9 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const [claimHash, setClaimHash] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [walletPending, setWalletPending] = useState(false);
   const [, forceTick] = useState(0);
 
   const load = useCallback(async () => {
@@ -73,7 +97,14 @@ export function Dashboard() {
       const token = await getAccessToken();
       const res = await fetch("/api/position", { headers: { Authorization: `Bearer ${token}` } });
       const body = await res.json();
+      if (body.code === "wallet_pending") {
+        // First-ever login: Privy is still provisioning. Not an error -- keep waiting.
+        setWalletPending(true);
+        setError(null);
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not load your equity.");
+      setWalletPending(false);
       setPosition(body);
       setError(null);
     } catch (e) {
@@ -83,24 +114,26 @@ export function Dashboard() {
 
   useEffect(() => {
     void load();
-    const poll = setInterval(() => void load(), 15_000);
+    const poll = setInterval(() => void load(), walletPending ? 2_000 : 15_000);
     // Separate, faster tick so the countdown stays live without re-reading the chain.
     const tick = setInterval(() => forceTick((n) => n + 1), 1_000);
     return () => {
       clearInterval(poll);
       clearInterval(tick);
     };
-  }, [load]);
+  }, [load, walletPending]);
 
   async function claim() {
     setClaiming(true);
     setNotice(null);
     setError(null);
+    setClaimHash(null);
     try {
       const token = await getAccessToken();
       const res = await fetch("/api/claim", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "The claim did not go through.");
+      setClaimHash(body.hash ?? null);
       setPosition(body.position);
       setNotice("Claimed. Your vested options are now yours to hold, transfer or borrow against.");
     } catch (e) {
@@ -110,10 +143,23 @@ export function Dashboard() {
     }
   }
 
+  if (walletPending) {
+    return (
+      <div className="center">
+        <div className="card" style={{ textAlign: "center", maxWidth: 340 }}>
+          <span className="spinner" />
+          <p style={{ margin: "14px 0 4px", fontWeight: 550 }}>Setting up your wallet</p>
+          <p className="muted">This takes a few seconds the first time you sign in.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!position && !error) {
     return (
       <div className="center">
-        <p className="muted">Loading your equity…</p>
+        <span className="spinner" />
+        <p className="muted" style={{ marginLeft: 10 }}>Loading your equity…</p>
       </div>
     );
   }
@@ -128,8 +174,21 @@ export function Dashboard() {
           <h1>My Equity</h1>
           <p className="muted">{user?.email?.address ?? user?.google?.email ?? "Signed in"}</p>
         </div>
-        <button className="ghost" onClick={() => void logout()}>
-          Sign out
+        <button
+          className="ghost"
+          disabled={signingOut}
+          onClick={() => {
+            setSigningOut(true);
+            void logout();
+          }}
+        >
+          {signingOut ? (
+            <>
+              <span className="spinner small" /> Signing out…
+            </>
+          ) : (
+            "Sign out"
+          )}
         </button>
       </div>
 
@@ -177,9 +236,23 @@ export function Dashboard() {
 
             {position.claimable > 0 && (
               <div style={{ marginTop: 20 }}>
-                <button onClick={() => void claim()} disabled={claiming}>
-                  {claiming ? "Claiming…" : `Claim ${position.claimable} vested tranche${position.claimable === 1 ? "" : "s"}`}
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button onClick={() => void claim()} disabled={claiming}>
+                    {claiming ? (
+                      <>
+                        <span className="spinner small" /> Claiming…
+                      </>
+                    ) : (
+                      `Claim ${position.claimable} vested tranche${position.claimable === 1 ? "" : "s"}`
+                    )}
+                  </button>
+                  {claiming && <span className="muted">submitting to Hedera…</span>}
+                  {!claiming && claimHash && (
+                    <span className="muted">
+                      transaction <TxLink hash={claimHash} />
+                    </span>
+                  )}
+                </div>
                 <p className="muted" style={{ marginTop: 8 }}>
                   Your employer pays the network fee. You never need HBAR.
                 </p>
@@ -201,12 +274,53 @@ export function Dashboard() {
                     {t.clawedBack && " · forfeited"}
                     {t.vested && !t.released && !t.clawedBack && " · ready to claim"}
                   </span>
+                  <span className="tx">{t.txHash ? <TxLink hash={t.txHash} /> : null}</span>
                   <span className="amount">{fmt(t.amount)}</span>
                 </li>
               ))}
             </ul>
           </div>
         </>
+      )}
+
+      {position && (
+        <div className="card">
+          <h2>Compliance</h2>
+          <ul className="timeline">
+            <li className="tranche two">
+              <span className={`dot ${position.compliance.kycGranted ? "vested" : ""}`} />
+              <span>
+                KYC {position.compliance.kycGranted ? "verified" : "not granted"}
+                {position.compliance.validTo && ` · valid to ${new Date(position.compliance.validTo * 1000)
+                  .toISOString()
+                  .slice(0, 10)}`}
+              </span>
+            </li>
+            <li className="tranche two">
+              <span className={`dot ${position.compliance.allowlisted ? "vested" : ""}`} />
+              <span>{position.compliance.allowlisted ? "On the issuer allowlist" : "Not allowlisted"}</span>
+            </li>
+          </ul>
+          {position.compliance.credentialId && (
+            <p className="muted" style={{ marginTop: 12 }}>
+              Credential <code>{position.compliance.credentialId}</code>
+              <br />
+              Attested by{" "}
+              <a
+                className="txlink"
+                href={`${HASHSCAN}/account/${position.compliance.issuer}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {position.compliance.issuer}
+              </a>
+            </p>
+          )}
+          <p className="muted" style={{ marginTop: 10 }}>
+            The token itself enforces this — a transfer to an address without both checks reverts on
+            chain, and revoking the issuer invalidates every credential it signed.
+          </p>
+        </div>
       )}
 
       <p className="muted">

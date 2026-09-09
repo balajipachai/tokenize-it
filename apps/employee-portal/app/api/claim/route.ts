@@ -21,6 +21,7 @@ export async function POST(req: Request) {
 
   try {
     const hash = await relayClaim(position.grantId);
+    // Re-read after the receipt so the client gets settled state, not a stale copy.
     return NextResponse.json({ hash, position: await readPosition(auth.wallet) });
   } catch (err) {
     console.error("Claim failed", err);

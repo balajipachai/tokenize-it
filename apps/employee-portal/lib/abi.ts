@@ -88,6 +88,19 @@ export const controllerAbi = [
   },
 ] as const;
 
+export const controllerEvents = [
+  {
+    type: "event",
+    name: "TrancheVested",
+    inputs: [
+      { name: "grantId", type: "uint256", indexed: true },
+      { name: "employee", type: "address", indexed: true },
+      { name: "trancheIndex", type: "uint256", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
 export const tokenAbi = [
   {
     type: "function",
@@ -98,6 +111,31 @@ export const tokenAbi = [
       { name: "tokenHolder", type: "address" },
     ],
     outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getKycFor",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [
+      {
+        type: "tuple",
+        components: [
+          { name: "validFrom", type: "uint256" },
+          { name: "validTo", type: "uint256" },
+          { name: "vcId", type: "string" },
+          { name: "issuer", type: "address" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "isInControlList",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
   },
   {
     type: "function",

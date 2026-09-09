@@ -4,7 +4,7 @@ import path from "node:path";
 import { createPublicClient, createWalletClient, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hederaTestnet } from "./chain";
-import { controllerAbi, tokenAbi } from "./abi";
+import { controllerAbi, controllerEvents, tokenAbi } from "./abi";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -14,7 +14,7 @@ function requireEnv(name: string): string {
 
 interface Deployment {
   esopToken: { address: Address; name: string; symbol: string; partition: `0x${string}` };
-  esopVestingController?: { address: Address };
+  esopVestingController?: { address: Address; creationTxHash?: `0x${string}` | null };
 }
 
 let cached: Deployment | null = null;
@@ -56,6 +56,16 @@ export interface TrancheView {
   released: boolean;
   clawedBack: boolean;
   vested: boolean;
+  /** Transaction that released this tranche, once it has been claimed. */
+  txHash: string | null;
+}
+
+export interface ComplianceView {
+  kycGranted: boolean;
+  allowlisted: boolean;
+  credentialId: string | null;
+  issuer: string | null;
+  validTo: number | null;
 }
 
 export interface PositionView {
@@ -73,6 +83,70 @@ export interface PositionView {
   locked: number;
   nextVestAt: number | null;
   tranches: TrancheView[];
+  compliance: ComplianceView;
+}
+
+/** Block the controller was created in, so log queries have a bounded range. */
+let deployBlock: bigint | null = null;
+async function controllerDeployBlock(): Promise<bigint> {
+  if (deployBlock !== null) return deployBlock;
+  const hash = deployment().esopVestingController!.creationTxHash;
+  if (hash) {
+    try {
+      deployBlock = (await publicClient.getTransactionReceipt({ hash })).blockNumber;
+      return deployBlock;
+    } catch {
+      /* fall through to the bounded window below */
+    }
+  }
+  // Hashio rejects unbounded eth_getLogs ranges, so never pass "earliest".
+  const head = await publicClient.getBlockNumber();
+  deployBlock = head > 100_000n ? head - 100_000n : 0n;
+  return deployBlock;
+}
+
+/**
+ * Maps tranche index to the transaction that released it, by reading TrancheVested
+ * logs. Best-effort: if the RPC refuses the range the schedule simply renders without
+ * links rather than the whole page failing.
+ */
+async function vestTxByTranche(
+  controller: Address,
+  grantId: bigint,
+  wallet: Address,
+): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  try {
+    const logs = await publicClient.getLogs({
+      address: controller,
+      event: controllerEvents[0],
+      args: { grantId, employee: wallet },
+      fromBlock: await controllerDeployBlock(),
+      toBlock: "latest",
+    });
+    for (const log of logs) {
+      const index = Number(log.args.trancheIndex);
+      if (!Number.isNaN(index)) map.set(index, log.transactionHash);
+    }
+  } catch (err) {
+    console.warn("Could not read TrancheVested logs; schedule will render without links.", err);
+  }
+  return map;
+}
+
+async function readCompliance(token: Address, wallet: Address): Promise<ComplianceView> {
+  const [kyc, allowlisted] = await Promise.all([
+    publicClient.readContract({ address: token, abi: tokenAbi, functionName: "getKycFor", args: [wallet] }),
+    publicClient.readContract({ address: token, abi: tokenAbi, functionName: "isInControlList", args: [wallet] }),
+  ]);
+  const granted = Number(kyc.status) === 1;
+  return {
+    kycGranted: granted,
+    allowlisted,
+    credentialId: granted && kyc.vcId ? kyc.vcId : null,
+    issuer: granted ? kyc.issuer : null,
+    validTo: granted && kyc.validTo > 0n ? Number(kyc.validTo) : null,
+  };
 }
 
 export async function readPosition(wallet: Address): Promise<PositionView> {
@@ -85,7 +159,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
     controller,
   };
 
-  const [grantIds, spendable, locked] = await Promise.all([
+  const [grantIds, spendable, locked, compliance] = await Promise.all([
     publicClient.readContract({ address: controller, abi: controllerAbi, functionName: "grantsOf", args: [wallet] }),
     publicClient.readContract({
       address: d.esopToken.address,
@@ -99,6 +173,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       functionName: "getLockedAmountForByPartition",
       args: [d.esopToken.partition, wallet],
     }),
+    readCompliance(d.esopToken.address, wallet),
   ]);
 
   if (grantIds.length === 0) {
@@ -115,6 +190,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       locked: Number(locked),
       nextVestAt: null,
       tranches: [],
+      compliance,
     };
   }
 
@@ -150,6 +226,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
     }),
   ]);
 
+  const vestTx = await vestTxByTranche(controller, grantId, wallet);
   const now = Math.floor(Date.now() / 1000);
   return {
     ...base,
@@ -171,7 +248,9 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       released: t.released,
       clawedBack: t.clawedBack,
       vested: Number(t.vestsAt) <= now,
+      txHash: vestTx.get(index) ?? null,
     })),
+    compliance,
   };
 }
 

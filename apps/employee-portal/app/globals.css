@@ -178,3 +178,58 @@ code {
   color: var(--muted);
   word-break: break-all;
 }
+
+.spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+
+.spinner.small {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  border-top-color: currentColor;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tranche {
+  grid-template-columns: 14px 1fr auto auto;
+}
+
+.tranche.two {
+  grid-template-columns: 14px 1fr;
+}
+
+.tx {
+  font-size: 12px;
+  min-width: 78px;
+  text-align: right;
+}
+
+.txlink {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.txlink:hover {
+  text-decoration: underline;
+}
+
+button .spinner.small {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}

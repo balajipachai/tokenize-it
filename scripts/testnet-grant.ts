@@ -43,10 +43,41 @@ async function main() {
   console.log(`  controller ${record.esopVestingController.address}`);
 
   // A holder must clear KYC and the allowlist before they can receive anything.
+  //
+  // What is real here, and what is stubbed, because this gets asked:
+  //   * ATS enforces the gate on-chain -- a transfer to a non-KYC'd address reverts.
+  //   * `grantKyc` reverts unless the attesting issuer is registered via
+  //     ssiManagement.addIssuer, so credentials cannot be conjured by any random key.
+  //   * Revocation is retroactive: drop the issuer and every credential it signed
+  //     reads NOT_GRANTED immediately (KycStorageWrapper checks isIssuer on read).
+  //   * What a production deployment swaps in is the off-chain provider that actually
+  //     verifies the human and mints the credential. The contract does not change --
+  //     only who holds ROLE_KYC and what `vcId` points at.
+  if (!(await token.isIssuer(operator.address))) {
+    await (await token.addIssuer(operator.address)).wait();
+    console.log("  -> registered KYC issuer");
+  }
+
+  // Earlier runs granted KYC with an empty vcId and a 0..MAX window, which is a
+  // credential that references nothing. Re-issue those so every holder carries a
+  // traceable attestation with a real validity period.
+  const existing = await token.getKycFor(employee);
+  if (Number(existing.status) === 1 && existing.vcId === "") {
+    await (await token.revokeKyc(employee)).wait();
+    console.log("  -> revoked placeholder credential");
+  }
+
   const kyc = await token.getKycStatusFor(employee);
   if (Number(kyc) !== 1) {
-    await (await token.grantKyc(employee, "", 0, MAX_UINT256, operator.address)).wait();
-    console.log("  -> KYC granted");
+    const now = Math.floor(Date.now() / 1000);
+    const validTo = now + 365 * 24 * 60 * 60;
+    // A real credential reference rather than an empty string, so the portal can show
+    // WHICH attestation admitted this holder and a reviewer can trace it.
+    const vcId = `did:hedera:testnet:${operator.address}#kyc-${employee.slice(2, 10).toLowerCase()}-${now}`;
+    await (await token.grantKyc(employee, vcId, now, validTo, operator.address)).wait();
+    console.log(`  -> KYC granted`);
+    console.log(`     credential ${vcId}`);
+    console.log(`     valid until ${new Date(validTo * 1000).toISOString().slice(0, 10)}`);
   }
   if (!(await token.isInControlList(employee))) {
     await (await token.addToControlList(employee)).wait();

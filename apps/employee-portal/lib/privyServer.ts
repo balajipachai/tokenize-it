@@ -52,19 +52,25 @@ export function bearerToken(req: Request): string | null {
 /** Verifies the caller and resolves their wallet, or returns the error response to send. */
 export async function requireWallet(
   req: Request,
-): Promise<{ wallet: `0x${string}`; userId: string } | { error: string; status: number }> {
+): Promise<
+  { wallet: `0x${string}`; userId: string } | { error: string; status: number; code?: string }
+> {
   const token = bearerToken(req);
-  if (!token) return { error: "Missing access token.", status: 401 };
+  if (!token) return { error: "Missing access token.", status: 401, code: "no_token" };
 
   let userId: string;
   try {
     userId = (await verifyAccessTokenOrThrow(token)).user_id;
   } catch {
-    return { error: "Invalid or expired session. Please sign in again.", status: 401 };
+    return { error: "Invalid or expired session. Please sign in again.", status: 401, code: "bad_session" };
   }
 
   const wallet = await getEmbeddedWalletAddress(userId);
-  if (!wallet) return { error: "No wallet found for this account. Sign out and back in.", status: 400 };
+  if (!wallet) {
+    // Privy provisions the embedded wallet a moment after the account exists, so on a
+    // first-ever login this is a race, not a failure. The client retries on this code.
+    return { error: "Setting up your wallet…", status: 409, code: "wallet_pending" };
+  }
 
   return { wallet, userId };
 }
