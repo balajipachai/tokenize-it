@@ -107,6 +107,8 @@ contract ESOPLendingPool {
     event Liquidated(uint256 indexed loanId, uint256 debt, uint256 collateralTaken, uint256 surplusReturned);
     event UnusedHoldReleased(address indexed borrower, bytes32 partition, uint256 holdId, uint256 amount);
     event PledgedAndBorrowed(address indexed borrower, bytes32 partition, uint256 holdId, uint256 indexed loanId);
+    event SeizedSharesWithdrawn(bytes32 partition, address indexed to, uint256 amount);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
     // slither-disable-next-line unindexed-event-address
     // Feed changes are rare and read from a full log, not filtered by address.
     event FeedsSet(address navFeed, address stableFeed, uint64 navMaxAge, uint64 stableMaxAge);
@@ -144,6 +146,8 @@ contract ESOPLendingPool {
     error NoRequestedAmount();
     /// @dev Carries a different remedy from the other guards: reclaim on the token, not release here.
     error HoldExpiredUseReclaim(uint64 expiry);
+    /// @dev This asset has its own way out; using the generic one would duplicate it.
+    error NotRescuable(address token);
 
     uint256 private _entered;
 
@@ -229,6 +233,62 @@ contract ESOPLendingPool {
         if (to == address(0)) revert ZeroAddress();
         emit LiquidityRemoved(to, amount);
         if (!stable.transfer(to, amount)) revert TransferFailed();
+    }
+
+    /**
+     * @notice Moves shares this pool seized in a liquidation out to a nominated holder.
+     *
+     * @dev Liquidation is the only way equity ever lands here, and once it does there was no
+     *      way out: every other path in this contract releases collateral back to a borrower
+     *      or executes a hold, and neither applies to shares the pool already owns outright.
+     *      A retired pool would keep them forever. That happened — a pool superseded during
+     *      development still holds 2,174 shares with no function able to move them.
+     *
+     *      Safe to expose because the pool NEVER custodies live collateral. A pledge stays in
+     *      the borrower's own wallet, marked held; only `executeHoldByPartition` during a
+     *      liquidation transfers anything here. So an ESOP balance on this contract is
+     *      seized equity or an accidental transfer, never somebody's active pledge, and this
+     *      cannot reach into a loan that is still running.
+     *
+     *      Compliance is NOT bypassed. `transferByPartition` still enforces KYC and the
+     *      allowlist on `to`, so seized shares can only move to an address the issuer has
+     *      already admitted — which is the point of holding them in a regulated token.
+     *
+     * @param partition Partition the seized shares sit on.
+     * @param to        Recipient. Must be KYC'd and allowlisted or the token will refuse.
+     * @param amount    How many shares to move.
+     */
+    function withdrawSeizedShares(
+        bytes32 partition,
+        address to,
+        uint256 amount
+    ) external onlyAdmin nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        emit SeizedSharesWithdrawn(partition, to, amount);
+        // slither-disable-next-line unused-return
+        // transferByPartition returns the partition key, not a success flag; it reverts on failure.
+        esop.transferByPartition(partition, IAtsEsop.BasicTransferInfo({to: to, value: amount}), "");
+    }
+
+    /**
+     * @notice Recovers an unrelated ERC-20 that ended up here.
+     *
+     * @dev Anyone can send any token to any address, so a pool that cannot give one back is
+     *      a one-way door. This is only for tokens with no other route out.
+     *
+     *      Deliberately refuses the two assets that DO have a route, rather than quietly
+     *      duplicating them. The stablecoin leaves through `removeLiquidity`, which is what
+     *      lenders' accounting reads; the ESOP token leaves through `withdrawSeizedShares`,
+     *      which is partition-aware and keeps the compliance checks. Two ways to move the
+     *      same asset is how one of them ends up forgotten in a review.
+     */
+    function rescueToken(address token, address to, uint256 amount) external onlyAdmin nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        if (token == address(stable) || token == address(esop)) revert NotRescuable(token);
+        emit TokenRescued(token, to, amount);
+        if (!IERC20Minimal(token).transfer(to, amount)) revert TransferFailed();
     }
 
     function transferAdmin(address newAdmin) external onlyAdmin {

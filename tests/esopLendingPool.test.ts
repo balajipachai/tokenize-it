@@ -607,6 +607,86 @@ describe("PHASE 4: ESOPLendingPool", () => {
     });
   });
 
+  describe("9. Getting assets back out of a retired pool", () => {
+    /** Liquidates a loan so the pool actually owns seized shares to withdraw. */
+    async function seize(): Promise<bigint> {
+      const holdId = await pledge(VESTED);
+      const loanId = await pool.nextLoanId();
+      await pool.connect(borrower).borrow(PARTITION, holdId, USDC(5_000));
+      // Halve the mark so the loan breaches the liquidation threshold.
+      await nav.publish(NAV_8DP / 2n, "down round");
+      await pool.connect(keeper).liquidate(loanId);
+      return await asset.balanceOfByPartition(PARTITION, poolAddress);
+    }
+
+    it("9.1 THE GAP: seized shares can be moved out, and could not be before", async () => {
+      const seized = await seize();
+      expect(seized).to.be.greaterThan(0n);
+
+      await pool.connect(admin).withdrawSeizedShares(PARTITION, admin.address, seized);
+
+      expect(await asset.balanceOfByPartition(PARTITION, poolAddress)).to.equal(0);
+      expect(await asset.balanceOfByPartition(PARTITION, admin.address)).to.equal(seized);
+    });
+
+    it("9.2 compliance is NOT bypassed -- an un-onboarded recipient is refused", async () => {
+      const seized = await seize();
+      // `lp` was never KYC'd or allowlisted in the fixture.
+      await expect(pool.connect(admin).withdrawSeizedShares(PARTITION, lp.address, seized)).to.be.reverted;
+      // The shares stay put rather than vanishing.
+      expect(await asset.balanceOfByPartition(PARTITION, poolAddress)).to.equal(seized);
+    });
+
+    it("9.3 only the admin may withdraw seized shares", async () => {
+      const seized = await seize();
+      await expect(
+        pool.connect(keeper).withdrawSeizedShares(PARTITION, keeper.address, seized),
+      ).to.be.revertedWithCustomError(pool, "NotAdmin");
+    });
+
+    it("9.4 refuses a zero recipient or a zero amount", async () => {
+      await seize();
+      await expect(
+        pool.connect(admin).withdrawSeizedShares(PARTITION, ethers.ZeroAddress, 1n),
+      ).to.be.revertedWithCustomError(pool, "ZeroAddress");
+      await expect(
+        pool.connect(admin).withdrawSeizedShares(PARTITION, admin.address, 0n),
+      ).to.be.revertedWithCustomError(pool, "ZeroAmount");
+    });
+
+    it("9.5 rescues an unrelated token that was sent here by mistake", async () => {
+      const StrayFactory = await ethers.getContractFactory("MockUSDC");
+      const stray = await StrayFactory.deploy();
+      await stray.waitForDeployment();
+      await stray.mint(poolAddress, USDC(1_234));
+
+      await pool.connect(admin).rescueToken(await stray.getAddress(), admin.address, USDC(1_234));
+      expect(await stray.balanceOf(admin.address)).to.equal(USDC(1_234));
+      expect(await stray.balanceOf(poolAddress)).to.equal(0);
+    });
+
+    it("9.6 refuses the stablecoin and the ESOP token -- each already has its own way out", async () => {
+      await expect(
+        pool.connect(admin).rescueToken(await usdc.getAddress(), admin.address, USDC(1)),
+      ).to.be.revertedWithCustomError(pool, "NotRescuable");
+      await expect(
+        pool.connect(admin).rescueToken(await asset.getAddress(), admin.address, 1n),
+      ).to.be.revertedWithCustomError(pool, "NotRescuable");
+    });
+
+    it("9.7 the stablecoin's own way out still works -- removeLiquidity", async () => {
+      const before = await usdc.balanceOf(admin.address);
+      await pool.connect(admin).removeLiquidity(admin.address, USDC(1_000));
+      expect(await usdc.balanceOf(admin.address)).to.equal(before + USDC(1_000));
+    });
+
+    it("9.8 only the admin may rescue", async () => {
+      await expect(
+        pool.connect(keeper).rescueToken(await usdc.getAddress(), keeper.address, USDC(1)),
+      ).to.be.revertedWithCustomError(pool, "NotAdmin");
+    });
+  });
+
   describe("7. Recovering a pledge that never became a loan", () => {
     it("7.1 releases a hold with no loan against it, back to the borrower", async () => {
       const holdId = await pledge(VESTED);
