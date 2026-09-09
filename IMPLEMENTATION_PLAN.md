@@ -972,7 +972,7 @@ inside its own project), and hand-rolled access control instead of OpenZeppelin 
 `IAccessControl`, which collides by Hardhat artifact name). The `admin` role still follows the
 `Ownable2Step` *shape*, which is the part that actually matters.
 
-### Phase 3 — Employee portal + Privy — 🟡 **built; blocked only on a Privy app ID**
+### Phase 3 — Employee portal + Privy — ✅ **DONE, verified end-to-end in a browser**
 
 `apps/employee-portal` (Next.js 16, React 19, viem, `@privy-io/react-auth` v3 + `@privy-io/node`).
 Login, My Equity, vesting timeline, manual claim. Builds and typechecks clean.
@@ -1005,10 +1005,29 @@ an app ID is proven working, not just compiling.
 `NEXT_PUBLIC_PRIVY_APP_ID` is missing. Here that broke `next build` at prerender — a missing runtime
 secret should not fail a build — so the portal renders a setup screen instead.
 
-**To finish:** create a Privy app, set `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET` and a funded
-`RELAYER_PRIVATE_KEY` in `apps/employee-portal/.env.local`, then log in and run
-`EMPLOYEE=<privy wallet> npm run testnet:grant`. Remaining polish: browser verification of the
-login flow, and the countdown/claim loop under a real session.
+**Verified in Chrome against live testnet**, which is the only thing that closes this phase — the
+plan's own rule is that typechecks do not catch wallet-state bugs. The full loop ran: Privy session
+resolved to embedded wallet `0x8a3DbE…16e9`; the portal correctly showed "no grant yet" with the
+address to grant to; `testnet:grant` issued 2,400 options over 13 tranches; the cliff vested live
+with the countdown ticking; **Claim** relayed `releaseVested` and the banner, the "in your wallet"
+stat and the timeline all updated.
+
+Confirmed independently on-chain afterwards, because a green UI is not evidence:
+
+| | |
+|---|---|
+| Employee spendable | 1,200 (the claimed cliff) |
+| Employee still locked | 1,200 |
+| **Employee native balance** | **0 — never paid gas** |
+| Relayer spent | ~0.39 HBAR |
+
+That last row is the product claim, measured rather than asserted: an employee holding real equity
+on an unactivated Hedera account, having never touched HBAR.
+
+**One bug the browser caught that nothing else would have.** Every tranche rendered as the same
+date, because the row formatter was date-only and a compressed demo schedule puts tranches minutes
+apart. Fixed by choosing the format from the schedule's actual span: under two days it shows the
+time, otherwise the date. Unit tests and `tsc` were both green throughout.
 
 ### Phase 4 — Lending
 `EsopNavOracle`, `EsopPriceRouter`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate,

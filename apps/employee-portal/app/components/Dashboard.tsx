@@ -42,8 +42,20 @@ function countdown(target: number): string {
   return `in ${secs}s`;
 }
 
-const when = (ts: number) =>
-  new Date(ts * 1000).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+/**
+ * A real four-year schedule has tranches a month apart, where a date is enough. A
+ * compressed demo schedule has them minutes apart, where every row would otherwise
+ * read as the same day. Pick the format from the spread rather than hardcoding one.
+ */
+function formatter(tranches: Tranche[]): (ts: number) => string {
+  const spanDays =
+    tranches.length > 1 ? (tranches[tranches.length - 1].vestsAt - tranches[0].vestsAt) / 86_400 : 365;
+  const opts: Intl.DateTimeFormatOptions =
+    spanDays < 2
+      ? { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }
+      : { day: "numeric", month: "short", year: "numeric" };
+  return (ts) => new Date(ts * 1000).toLocaleString("en-US", opts);
+}
 
 export function Dashboard() {
   const { logout, getAccessToken, user } = usePrivy();
@@ -107,6 +119,7 @@ export function Dashboard() {
   }
 
   const nextIndex = position?.tranches.findIndex((t) => !t.vested) ?? -1;
+  const when = formatter(position?.tranches ?? []);
 
   return (
     <div className="shell">

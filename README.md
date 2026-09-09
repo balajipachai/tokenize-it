@@ -19,7 +19,7 @@ and their rationale, and the phased delivery plan.
 | 0 | De-risking spikes | ✅ 4/4 green |
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
-| 3 | Employee portal + Privy | 🟡 built; needs a Privy app ID to sign in |
+| 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
 | 4 | Lending | |
 | 5 | Issuer console | |
 | 6 | Automation + polish | |
