@@ -1032,9 +1032,59 @@ portal borrow UI. **Onboard the pool address as a KYC'd + allowlisted holder as 
 (spike #1) and enforce bounded hold expiry (finding C2).
 **Demoable:** the differentiator — borrow against vested equity without selling it.
 
-### Phase 5 — Issuer console
-Grant issuance UI, employee register, leaver workflow, cap table.
-**Demoable:** the end-to-end enterprise story, both sides of the table.
+### Phase 5 — Issuer console — 🟡 **built; reads verified, writes need a connected wallet**
+
+`apps/issuer-console` (Next.js + viem, port 3001). Option pool summary, onboarding (KYC +
+allowlist), grant issuance with a configurable schedule, suspend/reinstate, and the good/bad leaver
+flow with clawback. Brought forward ahead of Phase 4 because until it existed `terminate` and
+`clawback` had **no caller at all** outside the Hardhat tests — the leaver moment, which is the
+sharpest part of the demo, could not be shown.
+
+**HR signs with their own wallet, not a shared server key.** That asymmetry with the employee
+portal is deliberate: `terminate` records `msg.sender` as the deciding address, so per-person
+signing is what makes that attribution mean anything, and one shared key would trace every
+forfeiture to the same address. The portal relays for exactly the opposite reason — an employee
+should never need gas to receive their own equity. `npm run testnet:grant-roles` authorises an HR
+wallet without anyone importing the operator key into a browser.
+
+#### Real economics, measured on testnet — and a correction to Phase 1
+
+The first grant issued through the console cost **3.72 HBAR ≈ $0.30** (HBAR at $0.0799, from the
+Chainlink feed verified in §5.3.2). From the mirror node:
+
+| Call | gas limit | gas used | used/limit | Fee |
+|---|---:|---:|---:|---:|
+| `createGrant` (13 tranches) | 524,174 | 495,846 | 94.6% | 0.53 ℏ |
+| `fundTranches` (13 tranches) | 3,170,214 | 2,982,440 | 94.1% | 3.19 ℏ |
+
+**This corrects the Phase 1 batching rule.** A tranche costs ~425k gas as its *own* transaction but
+only **~230k batched** inside `fundTranches` — the base fee and calldata amortise, and storage stays
+warm. A full 37-tranche grant is therefore **~8.5M gas, comfortably inside one transaction**, not
+the ~15.9M extrapolated earlier. Batch size raised 20 → 40. The Phase 1 figure was not wrong, it
+measured the wrong thing: 37 separate transactions, which is not how the controller funds.
+
+| Schedule | Gas | Cost |
+|---|---:|---:|
+| 13 tranches (demo) | 3.5M | **$0.30** |
+| 17 tranches (3y quarterly) | 4.5M | **$0.39** |
+| 37 tranches (4y monthly) | 9.9M | **$0.85** |
+
+Plus roughly $0.03 per claim, so **lifetime cost per employee is under $2**. The comparison that
+matters is not against zero but against Carta, or a spreadsheet plus a lawyer. If cost ever bites,
+the lever is schedule granularity — quarterly vesting more than halves it, and employees can batch
+claims rather than claiming monthly.
+
+Worth knowing for anyone tuning this: MetaMask's estimates landed at ~94% of gas used, so there is
+no headroom being wasted. Do **not** "fix" anything with a generous hardcoded gas limit — Hedera
+charges most of the offered limit even when unused, so an over-generous constant is a real cost
+rather than free safety.
+
+> **Trap that looked like a revert.** `terminate` failed with *"RPC endpoint returned HTTP client
+> error"*, which reads like a contract revert but is not one — Hedera rejects raw transactions
+> priced below the network minimum, and MetaMask offered less. Cheap calls hit it while expensive
+> ones happened not to. Every issuer write now prices from `eth_gasPrice` with a margin rather than
+> leaving it to the wallet. ATS's own constants flag this: *"must be set alongside gasLimit to skip
+> eth_estimateGas on Hedera"*.
 
 ### Phase 6 — Automation + polish
 HSS `scheduleCall` auto-vesting (with keeper fallback), Mirror Node indexer, dividends, seeded demo
