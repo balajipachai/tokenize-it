@@ -150,14 +150,23 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
  * as an opaque "RPC endpoint returned HTTP client error" at eth_sendRawTransaction,
  * which reads like a contract revert but is not one.
  *
- * So price every write from the network rather than leaving it to the wallet. The gas
- * LIMIT is still estimated rather than hardcoded: Hedera charges most of the offered
- * limit even when unused, so an over-generous constant is a real cost, not free safety.
+ * So price every write from the network rather than leaving it to the wallet.
+ *
+ * The LIMIT is estimated and then TRIPLED. This used to be estimate + 15%, on the belief
+ * that Hedera charges most of the offered limit and headroom is therefore expensive. That
+ * belief was wrong — charged fee tracks gas USED, measured directly: the same call offered
+ * 120,000 and 900,000 cost an identical 0.03710687 HBAR. Meanwhile the estimator
+ * UNDER-counts: 11% low on a bare ERC-20 mint, and roughly half on anything looping into
+ * the ATS diamond, which is most of what this console does. A 15% buffer was thin cover
+ * against a 2x undercount, and it was buying nothing.
  */
+const MAX_TX_GAS = 15_000_000n;
+
 async function txOverrides(estimate: bigint) {
   const price = await publicClient.getGasPrice();
+  const gas = estimate * 3n;
   return {
-    gas: (estimate * 115n) / 100n,
+    gas: gas > MAX_TX_GAS ? MAX_TX_GAS : gas,
     gasPrice: (price * 120n) / 100n,
   };
 }

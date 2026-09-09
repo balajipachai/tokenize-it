@@ -35,6 +35,46 @@ export function deployment(): Deployment {
 
 export const publicClient = createPublicClient({ chain: hederaTestnet, transport: http() });
 
+/** Hedera's ceiling for a single transaction. */
+const MAX_TX_GAS = 15_000_000n;
+
+/**
+ * A gas limit from `eth_estimateGas`, tripled.
+ *
+ * Two measured facts set this, and the second is the one that makes it safe:
+ *
+ *  1. Hedera's estimator UNDER-counts. It came back 11% low on a bare ERC-20 mint
+ *     (35,869 estimated against 40,503 actually used) and roughly half on anything that
+ *     loops into the ATS diamond — 523k for a release that needs ~1.05M, which is how a
+ *     claim once died at 99.99% of its limit with an empty revert reason. Passing an
+ *     estimate through untouched is a way to run out of gas.
+ *
+ *  2. Over-offering is FREE. Charged fee tracks gas USED, not the limit offered. Measured
+ *     directly: the same mint, offered 120,000 and then 900,000, cost 0.03710687 HBAR both
+ *     times. (This corrects a belief held through much of this project's history — that
+ *     Hedera bills most of the offered limit — which had been used to argue AGAINST
+ *     generous limits. It is wrong, and it made every gas decision here more anxious than
+ *     it needed to be.)
+ *
+ * So: estimate to stay adaptive, triple it to survive the undercount, and pay nothing for
+ * the headroom. `floor` covers the case where estimation itself fails.
+ */
+export async function gasFor(
+  estimate: () => Promise<bigint>,
+  floor: bigint,
+): Promise<bigint> {
+  let limit: bigint;
+  try {
+    limit = (await estimate()) * 3n;
+  } catch {
+    // A failed estimate usually means the call would revert, and the real error is far more
+    // useful coming from the chain than from here. Send it with the floor and let it speak.
+    limit = floor;
+  }
+  if (limit < floor) limit = floor;
+  return limit > MAX_TX_GAS ? MAX_TX_GAS : limit;
+}
+
 /**
  * The relayer. It pays for every transaction the portal makes, which is what lets an
  * employee hold equity on an unactivated Hedera account and never touch HBAR.
@@ -278,9 +318,15 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
  * Hedera's estimator under-counts loops that call into the ATS diamond — it returned
  * 523k for a release that needs ~1.05M, and the transaction died at 99.99% of its
  * limit with an empty revert reason. Our own measurement is the better number:
- * releaseVested(12) costs 1,049,811 gas, so ~88k per tranche. 140k carries real
- * headroom without being wasteful, which matters because Hedera charges most of the
- * offered limit even when unused.
+ * releaseVested(12) costs 1,049,811 gas, so ~88k per tranche, and 140k carries real
+ * headroom.
+ *
+ * The headroom costs nothing: charged fee tracks gas USED, not the limit offered — the
+ * same call offered 120k and 900k cost an identical 0.03710687 HBAR. An earlier version of
+ * this comment claimed the opposite and used it to argue for tight limits; that was wrong.
+ * See `gasFor` above, which is the general form of this and should be preferred for new
+ * call sites. This one stays measurement-based because a per-tranche figure we measured
+ * beats an estimate we know under-counts precisely this shape of work.
  */
 function releaseGas(tranches: number): bigint {
   const limit = 250_000n + 140_000n * BigInt(Math.max(tranches, 1));

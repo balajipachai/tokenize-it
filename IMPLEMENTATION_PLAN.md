@@ -1160,9 +1160,15 @@ the lever is schedule granularity — quarterly vesting more than halves it, and
 claims rather than claiming monthly.
 
 Worth knowing for anyone tuning this: MetaMask's estimates landed at ~94% of gas used, so there is
-no headroom being wasted. Do **not** "fix" anything with a generous hardcoded gas limit — Hedera
-charges most of the offered limit even when unused, so an over-generous constant is a real cost
-rather than free safety.
+no headroom being wasted.
+
+> **Correction, measured later.** This section previously claimed Hedera charges most of the
+> offered gas limit even when unused, and used that to argue against generous limits. **That is
+> wrong.** Charged fee tracks gas USED. Measured two ways: across eight relayer transactions
+> `charged_tx_fee / gas_used` was a constant 108.0 tinybar while `fee / gas_limit` ranged from 12
+> to 56; and directly, the same mint offered 120,000 and then 900,000 cost an identical
+> 0.03710687 HBAR. Headroom is free — only the balance to cover it is required. The belief made
+> every gas decision in this project more anxious than it needed to be.
 
 > **Do not trust Hedera's `eth_estimateGas` for loops.** A claim reverted on-chain
 > ([`0xfc8038…d73c`](https://hashscan.io/testnet/transaction/0xfc803847978fb637560975f4db270a050fa83d48308d1791cd6756aba9a1d73c))
@@ -1171,8 +1177,10 @@ rather than free safety.
 > `releaseVested` that our own measurement puts at ~1.05M for 12 tranches: it under-counts
 > loops that call into the ATS diamond, by roughly half. Both apps now size the limit from
 > the work itself (~140k per tranche against ~88k measured) rather than from the estimate.
-> Sizing beats a blanket multiplier here because Hedera charges most of the offered limit
-> even when unused, so over-asking is a real cost rather than free insurance.
+> Sizing from the work is still the better choice for releases specifically, because a
+> per-tranche figure we measured beats an estimate we know under-counts exactly this shape of
+> work. But it is not a *cost* argument: over-asking is free (see the correction above), so
+> new call sites should prefer `gasFor` — estimate, then triple it.
 >
 > **Two clock traps in `terminate`, both found by simulating rather than guessing.**
 > The contract rejects an effective date after `block.timestamp` (to stop anyone

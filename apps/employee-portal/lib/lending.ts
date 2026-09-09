@@ -7,7 +7,7 @@ import {
   type Hex,
 } from "viem";
 import { hederaTestnet } from "./chain";
-import { deployment, publicClient, relayer } from "./contracts";
+import { deployment, gasFor, publicClient, relayer } from "./contracts";
 import { erc20Abi, poolAbi, protectedHoldAbi, tokenAbi } from "./abi";
 
 const DAY = 24 * 60 * 60;
@@ -325,15 +325,25 @@ export async function relayBorrow(
   //
   // It also removes the need to work out the new hold's id at all: the pool receives it as a
   // return value from the token rather than anyone parsing it back out of a receipt.
+  const args = [d.esopToken.partition, wallet, pledge.message._protectedHold, signature] as const;
   const tx = await w.writeContract({
     address: l.pool,
     abi: poolAbi,
     functionName: "pledgeAndBorrow",
-    args: [d.esopToken.partition, wallet, pledge.message._protectedHold as never, signature],
-    // Sized from measured usage: the hold leg ran ~470k and the loan leg ~360k, so ~830k of
-    // real work. Hedera charges most of the offered limit, which is precisely why doing this
-    // as one call is cheaper than two 900k offers.
-    gas: 1_150_000n,
+    args: args as never,
+    // Estimated, then tripled — see `gasFor`. The floor is measured: the hold leg ran ~470k
+    // and the loan leg ~360k when these were two transactions, so ~830k of real work.
+    gas: await gasFor(
+      () =>
+        publicClient.estimateContractGas({
+          address: l.pool,
+          abi: poolAbi,
+          functionName: "pledgeAndBorrow",
+          args: args as never,
+          account: w.account,
+        }),
+      1_000_000n,
+    ),
     ...overrides,
   });
   await confirm(tx, "Pledging your shares and opening the loan");
@@ -402,7 +412,17 @@ export async function relayRepay(
     abi: erc20Abi,
     functionName: "permit",
     args: [wallet, l.pool, permitMessage.value, permitMessage.deadline, v, r, s],
-    gas: 300_000n,
+    gas: await gasFor(
+      () =>
+        publicClient.estimateContractGas({
+          address: l.stable,
+          abi: erc20Abi,
+          functionName: "permit",
+          args: [wallet, l.pool, permitMessage.value, permitMessage.deadline, v, r, s],
+          account: w.account,
+        }),
+      250_000n,
+    ),
     ...overrides,
   });
   await confirm(permitTx, "Approving the repayment");
@@ -412,7 +432,19 @@ export async function relayRepay(
     abi: poolAbi,
     functionName: "repayAllFor",
     args: [BigInt(loanId)],
-    gas: 900_000n,
+    // Repaying releases the hold, which loops inside the diamond — exactly the shape the
+    // estimator under-counts, so the floor matters as much as the estimate here.
+    gas: await gasFor(
+      () =>
+        publicClient.estimateContractGas({
+          address: l.pool,
+          abi: poolAbi,
+          functionName: "repayAllFor",
+          args: [BigInt(loanId)],
+          account: w.account,
+        }),
+      800_000n,
+    ),
     ...overrides,
   });
   await confirm(repayTx, "Repaying the loan");
