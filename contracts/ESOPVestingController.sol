@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.28;
 
-import {IAtsEsop} from "./interfaces/IAtsEsop.sol";
+import {IAtsEsop, IMultisig} from "./interfaces/IAtsEsop.sol";
 
 /**
  * @title ESOPVestingController
@@ -35,6 +35,18 @@ contract ESOPVestingController {
         Bad
     }
 
+    /// @dev Kept separate from GrantStatus rather than folded into it. "Terminated" and
+    ///      "contested" are two facts about a grant, not one: a grant can be terminated and
+    ///      undisputed, terminated and contested, or reinstated after a dispute succeeded.
+    ///      Collapsing them would lose the distinction between "never contested" and
+    ///      "contested and the employer won".
+    enum DisputeState {
+        None,
+        Raised,
+        Upheld,
+        Overturned
+    }
+
     struct Tranche {
         uint128 amount;
         uint64 vestsAt;
@@ -54,6 +66,11 @@ contract ESOPVestingController {
         uint32 fundedTranches;
         GrantStatus status;
         LeaverType leaver;
+        DisputeState dispute;
+        /// @dev Clawback is blocked until this passes, giving the employee time to contest.
+        uint64 disputeDeadline;
+        /// @dev Who terminated. Recorded so they cannot also judge the appeal.
+        address terminatedBy;
     }
 
     IAtsEsop public immutable token;
@@ -65,6 +82,19 @@ contract ESOPVestingController {
     address public admin;
     address public pendingAdmin;
     mapping(address => bool) public isGrantAdmin;
+
+    /// @dev Arbiters resolve contested terminations. Deliberately a separate roster from
+    ///      grant admins: an appeal judged by the person who fired you is not an appeal.
+    mapping(address => bool) public isArbiter;
+
+    /// @dev May raise a dispute on an employee's behalf. Safe to delegate because raising
+    ///      one can only ever DELAY a forfeiture, never cause or enlarge one — so a
+    ///      misbehaving relayer inconveniences the employer, not the employee.
+    mapping(address => bool) public isDisputeRelayer;
+
+    /// @notice How long after termination a clawback must wait. Settable so a demo can use
+    ///         seconds where a real deployment would use weeks.
+    uint64 public disputeWindow;
 
     uint256 private _reentrancyStatus;
 
@@ -91,6 +121,13 @@ contract ESOPVestingController {
     event AdminTransferStarted(address indexed from, address indexed to);
     event AdminTransferred(address indexed from, address indexed to);
     event GrantAdminSet(address indexed account, bool enabled);
+    event ArbiterSet(address indexed account, bool enabled);
+    event DisputeRelayerSet(address indexed account, bool enabled);
+    event DisputeWindowSet(uint64 seconds_);
+    event DisputeRaised(uint256 indexed grantId, address indexed employee, address indexed raisedBy);
+    event DisputeResolved(uint256 indexed grantId, bool upheld, address indexed arbiter);
+    event GrantReinstated(uint256 indexed grantId);
+    event TrancheAccelerated(uint256 indexed grantId, uint256 trancheIndex, uint64 from, uint64 to);
 
     error ScheduleLengthMismatch();
     error EmptySchedule();
@@ -110,6 +147,15 @@ contract ESOPVestingController {
     error GrantNotTerminated(uint256 grantId);
     error Reentrancy();
     error TokenCallFailed();
+    error NotArbiter();
+    error NotDisputeRaiser();
+    error DisputeWindowOpen(uint64 until);
+    error DisputeWindowClosed(uint64 closedAt);
+    error DisputeAlreadyRaised();
+    error DisputeUnresolved();
+    error NoDisputeToResolve();
+    error ArbiterCannotJudgeOwnDecision();
+    error ArbiterMustBeMultisig(address account);
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
@@ -131,13 +177,51 @@ contract ESOPVestingController {
         _reentrancyStatus = 0;
     }
 
-    constructor(IAtsEsop _token, address _admin) {
+    constructor(IAtsEsop _token, address _admin, uint64 _disputeWindow) {
         if (address(_token) == address(0) || _admin == address(0)) revert ZeroAddress();
         token = _token;
         admin = _admin;
         isGrantAdmin[_admin] = true;
+        disputeWindow = _disputeWindow;
         emit AdminTransferred(address(0), _admin);
         emit GrantAdminSet(_admin, true);
+        emit DisputeWindowSet(_disputeWindow);
+    }
+
+    /**
+     * @notice Appoints or removes an arbiter. Arbiters must be multisigs.
+     * @dev An appeal decided by one person's private key is not an appeal, so this rejects
+     *      EOAs and any contract that cannot show a threshold of at least two. Checking
+     *      `getThreshold()` is a real test rather than a gesture: Safe and its clones expose
+     *      it, an EOA has no code to call, and a 1-of-1 fails the threshold.
+     *
+     *      What it cannot prove is who the owners are — a 2-of-2 held by one person would
+     *      pass. That residue is governance, not something a contract can settle, and it is
+     *      why the roster stays revocable by `admin` and every ruling is attributed.
+     */
+    function setArbiter(address account, bool enabled) external onlyAdmin {
+        if (account == address(0)) revert ZeroAddress();
+        if (enabled) {
+            if (account.code.length == 0) revert ArbiterMustBeMultisig(account);
+            try IMultisig(account).getThreshold() returns (uint256 threshold) {
+                if (threshold < 2) revert ArbiterMustBeMultisig(account);
+            } catch {
+                revert ArbiterMustBeMultisig(account);
+            }
+        }
+        isArbiter[account] = enabled;
+        emit ArbiterSet(account, enabled);
+    }
+
+    function setDisputeRelayer(address account, bool enabled) external onlyAdmin {
+        if (account == address(0)) revert ZeroAddress();
+        isDisputeRelayer[account] = enabled;
+        emit DisputeRelayerSet(account, enabled);
+    }
+
+    function setDisputeWindow(uint64 seconds_) external onlyAdmin {
+        disputeWindow = seconds_;
+        emit DisputeWindowSet(seconds_);
     }
 
     function setGrantAdmin(address account, bool enabled) external onlyAdmin {
@@ -202,7 +286,10 @@ contract ESOPVestingController {
             terminatedAt: 0,
             fundedTranches: 0,
             status: GrantStatus.Funding,
-            leaver: LeaverType.None
+            leaver: LeaverType.None,
+            dispute: DisputeState.None,
+            disputeDeadline: 0,
+            terminatedBy: address(0)
         });
         _grantsOf[employee].push(grantId);
 
@@ -290,7 +377,7 @@ contract ESOPVestingController {
             if (t.vestsAt > cutoff) continue;
 
             // Someone may have released this lock directly on the token; skip rather than revert.
-            (uint256 lockedAmount, ) = token.getLockForByPartition(partition, employee, t.lockId);
+            (uint256 lockedAmount, uint256 lockExpiry) = token.getLockForByPartition(partition, employee, t.lockId);
             if (lockedAmount == 0) {
                 list[i].released = true;
                 continue;
@@ -300,7 +387,15 @@ contract ESOPVestingController {
             // ATS returns true or reverts today, but it is an upgradeable diamond -- checking
             // costs nothing and stops a future silent `false` from marking a tranche released
             // without the tokens ever moving.
-            if (!token.releaseByPartition(partition, t.lockId, employee)) revert TokenCallFailed();
+            if (lockExpiry > block.timestamp) {
+                // Accelerated by a good-leaver termination: our record says this tranche is
+                // credited, but the underlying lock still carries its original date. Only a
+                // grant admin can create that state, so force-releasing here delegates no new
+                // authority -- it just carries out a decision already made and recorded.
+                if (!token.forceReleaseByPartition(partition, t.lockId, employee)) revert TokenCallFailed();
+            } else if (!token.releaseByPartition(partition, t.lockId, employee)) {
+                revert TokenCallFailed();
+            }
             releasedAmount += lockedAmount;
             unchecked {
                 ++done;
@@ -338,7 +433,70 @@ contract ESOPVestingController {
         g.status = GrantStatus.Terminated;
         g.terminatedAt = effectiveAt;
         g.leaver = leaver;
+        g.dispute = DisputeState.None;
+        g.disputeDeadline = uint64(block.timestamp) + disputeWindow;
+        g.terminatedBy = msg.sender;
+
+        // A good leaver is credited the tranche they were part-way through. Implemented by
+        // pulling that tranche's vest date back to the leaving date, so it simply falls
+        // inside the existing cutoff rather than needing a parallel "accelerated" concept.
+        if (leaver == LeaverType.Good) {
+            Tranche[] storage list = _tranches[grantId];
+            for (uint256 i; i < list.length; ++i) {
+                if (list[i].released || list[i].clawedBack) continue;
+                if (list[i].vestsAt > effectiveAt) {
+                    emit TrancheAccelerated(grantId, i, list[i].vestsAt, effectiveAt);
+                    list[i].vestsAt = effectiveAt;
+                    break;
+                }
+            }
+        }
+
         emit GrantTerminated(grantId, leaver, effectiveAt, msg.sender);
+    }
+
+    /**
+     * @notice Contests a termination, blocking clawback until an arbiter rules.
+     * @dev Callable by the employee, or by a dispute relayer on their behalf — the employee
+     *      holds equity on an account that may never have paid gas, so requiring them to
+     *      transact would make the right theoretical only. Delegating is safe because raising
+     *      a dispute can only delay a forfeiture, never cause one.
+     */
+    function raiseDispute(uint256 grantId) external {
+        Grant storage g = _requireGrant(grantId);
+        if (msg.sender != g.employee && !isDisputeRelayer[msg.sender]) revert NotDisputeRaiser();
+        if (g.status != GrantStatus.Terminated) revert GrantNotTerminated(grantId);
+        if (g.dispute != DisputeState.None) revert DisputeAlreadyRaised();
+        if (block.timestamp > g.disputeDeadline) revert DisputeWindowClosed(g.disputeDeadline);
+
+        g.dispute = DisputeState.Raised;
+        emit DisputeRaised(grantId, g.employee, msg.sender);
+    }
+
+    /**
+     * @notice Rules on a contested termination.
+     * @dev `upheld` is a parameter for the same reason the leaver type is: no on-chain fact can
+     *      establish whether a dismissal was fair. The mitigations are procedural — the ruling
+     *      is attributed to `msg.sender`, the arbiter roster is revocable by `admin`, and the
+     *      address that terminated the grant is barred from judging the appeal.
+     */
+    function resolveDispute(uint256 grantId, bool upheld) external {
+        Grant storage g = _requireGrant(grantId);
+        if (!isArbiter[msg.sender]) revert NotArbiter();
+        if (msg.sender == g.terminatedBy) revert ArbiterCannotJudgeOwnDecision();
+        if (g.dispute != DisputeState.Raised) revert NoDisputeToResolve();
+
+        if (upheld) {
+            g.dispute = DisputeState.Upheld;
+        } else {
+            // The termination is undone: vesting resumes from where it was frozen.
+            g.dispute = DisputeState.Overturned;
+            g.status = GrantStatus.Active;
+            g.terminatedAt = 0;
+            g.leaver = LeaverType.None;
+            emit GrantReinstated(grantId);
+        }
+        emit DisputeResolved(grantId, upheld, msg.sender);
     }
 
     /**
@@ -353,6 +511,14 @@ contract ESOPVestingController {
     ) external onlyGrantAdmin nonReentrant returns (uint256 burned) {
         Grant storage g = _requireGrant(grantId);
         if (g.status != GrantStatus.Terminated) revert GrantNotTerminated(grantId);
+
+        // The dispute window is a real timeout, not just a stored field: this is the
+        // reachable trigger that enforces it. An undisputed termination waits it out; a
+        // contested one waits for a ruling; an upheld ruling proceeds immediately.
+        if (g.dispute == DisputeState.Raised) revert DisputeUnresolved();
+        if (g.dispute == DisputeState.None && block.timestamp <= g.disputeDeadline) {
+            revert DisputeWindowOpen(g.disputeDeadline);
+        }
 
         address employee = g.employee;
         bytes32 partition = g.partition;
@@ -389,7 +555,10 @@ contract ESOPVestingController {
         }
 
         if (burned > 0) {
-            token.controllerRedeemByPartition(partition, employee, burned, "", "");
+            // Returned to this contract's pool rather than burned. Forfeited options are
+            // meant to become grantable again, and a transfer does that directly — burning
+            // would drop total supply and require a fresh mint (and ISSUER_ROLE) to reuse them.
+            token.controllerTransferByPartition(partition, employee, address(this), burned, "", "");
             emit ClawedBack(grantId, count, burned);
         }
     }

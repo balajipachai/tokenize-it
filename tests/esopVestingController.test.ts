@@ -100,7 +100,7 @@ describe("PHASE 2: ESOPVestingController", () => {
     asset = await ethers.getContractAt("IAsset", base.diamond.target);
 
     const Factory = await ethers.getContractFactory("ESOPVestingController");
-    controller = await Factory.deploy(base.diamond.target, hr.address);
+    controller = await Factory.deploy(base.diamond.target, hr.address, 0); // window 0 = existing tests unaffected
     await controller.waitForDeployment();
     controllerAddress = await controller.getAddress();
 
@@ -293,29 +293,34 @@ describe("PHASE 2: ESOPVestingController", () => {
   });
 
   describe("4. Leavers", () => {
-    it("4.1 BAD LEAVER pre-cliff: nothing vested, everything burned", async () => {
+    it("4.1 BAD LEAVER pre-cliff: the whole grant returns to the pool", async () => {
       const id = await newGrant(raj.address);
       await fundAll(id);
       const supplyBefore = await asset.totalSupply();
+      const poolBefore = await asset.balanceOfByPartition(PARTITION, controllerAddress);
 
       await time.increaseTo(start + 180 * DAY);
       await controller.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
 
-      let burned = 0n;
+      let forfeited = 0n;
       for (;;) {
         const rc = await (await controller.connect(hr).clawback(id, 20)).wait();
         const ev = rc.logs.map((l: any) => controller.interface.parseLog(l)).find((e: any) => e?.name === "ClawedBack");
         if (!ev) break;
-        burned += ev.args.amount;
+        forfeited += ev.args.amount;
       }
 
-      expect(burned).to.equal(GRANT_TOTAL);
+      expect(forfeited).to.equal(GRANT_TOTAL);
       expect(await asset.balanceOfByPartition(PARTITION, raj.address)).to.equal(0);
       expect(await asset.getLockedAmountForByPartition(PARTITION, raj.address)).to.equal(0);
-      expect(await asset.totalSupply()).to.equal(supplyBefore - BigInt(GRANT_TOTAL));
+      // Forfeited options are re-grantable, so supply is untouched and the pool grows back.
+      expect(await asset.totalSupply()).to.equal(supplyBefore);
+      expect(await asset.balanceOfByPartition(PARTITION, controllerAddress)).to.equal(
+        poolBefore + BigInt(GRANT_TOTAL),
+      );
     });
 
-    it("4.2 GOOD LEAVER at month 18: vested retained, unvested burned", async () => {
+    it("4.2 GOOD LEAVER at month 18: vested retained, unvested returned to the pool", async () => {
       const id = await newGrant(priya.address);
       await fundAll(id);
 
@@ -330,7 +335,12 @@ describe("PHASE 2: ESOPVestingController", () => {
         if ((await controller.unvestedAmount(id)) === 0n) break;
       }
 
-      expect(await asset.balanceOfByPartition(PARTITION, priya.address)).to.equal(vested);
+      // A good leaver is credited the tranche they were part-way through, and that tranche
+      // is vested but still LOCKED until somebody claims it -- clawback correctly leaves it
+      // alone. So the employee has one more tranche to release after termination.
+      await controller.connect(bystander).releaseVested(id, 50);
+
+      expect(await asset.balanceOfByPartition(PARTITION, priya.address)).to.equal(vested + MONTHLY);
       expect(await asset.getLockedAmountForByPartition(PARTITION, priya.address)).to.equal(0);
     });
 
@@ -341,7 +351,9 @@ describe("PHASE 2: ESOPVestingController", () => {
       await fundAll(id);
 
       await time.increaseTo(start + YEAR + 1); // only the cliff has vested
-      await controller.connect(hr).terminate(id, LeaverType.Good, await time.latest());
+      // Bad leaver deliberately: a good leaver also accelerates the in-flight tranche,
+      // which would muddy the one property this test exists to pin down.
+      await controller.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
 
       // Two more years pass before anyone finishes the paperwork.
       await time.increaseTo(start + 3 * YEAR);
@@ -544,6 +556,234 @@ describe("PHASE 2: ESOPVestingController", () => {
       await controller.connect(bystander).releaseVested(id, 50);
 
       expect(await asset.balanceOfByPartition(PARTITION, priya.address)).to.equal(CLIFF * 2);
+    });
+  });
+
+  describe("7. Dispute window, arbitration and leaver semantics", () => {
+    const WINDOW = 7 * DAY;
+
+    async function withWindow() {
+      const Factory = await ethers.getContractFactory("ESOPVestingController");
+      const c = await Factory.deploy(await asset.getAddress(), hr.address, WINDOW);
+      await c.waitForDeployment();
+      const addr = await c.getAddress();
+
+      await executeRbac(asset, [
+        { role: ATS_ROLES.ROLE_LOCKER, members: [addr] },
+        { role: ATS_ROLES.ROLE_CONTROLLER, members: [addr] },
+        { role: ATS_ROLES.ROLE_WILD_CARD, members: [addr] },
+      ]);
+      await asset.connect(admin).grantKyc(addr, EMPTY_STRING, ZERO, MAX_UINT256, admin.address);
+      await asset.connect(admin).addToControlList(addr);
+      // The pool is already minted to the cap in beforeEach, so move some across rather
+      // than minting more -- maxSupply is a hard cap, not a soft one.
+      await controller.connect(hr).returnToTreasury(PARTITION, addr, 100_000);
+      return c;
+    }
+
+    /** A Safe-shaped arbiter that `executor` can drive, since arbiters must be multisigs. */
+    async function deployArbiter(threshold: number, executor: string) {
+      const M = await ethers.getContractFactory("MockMultisig");
+      const m = await M.deploy(threshold, executor);
+      await m.waitForDeployment();
+      return m;
+    }
+
+    async function resolveVia(m: any, c: any, from: HardhatEthersSigner, grantId: number, upheld: boolean) {
+      const data = c.interface.encodeFunctionData("resolveDispute", [grantId, upheld]);
+      return m.connect(from).execute(await c.getAddress(), data);
+    }
+
+    async function grantOn(c: any, employee: string) {
+      const from = await time.latest();
+      const s = schedule(from);
+      const id = Number(await c.nextGrantId());
+      await c.connect(hr).createGrant(employee, PARTITION, s.amounts, s.dates);
+      for (;;) {
+        await c.connect(hr).fundTranches(id, 40);
+        if (Number((await c.getGrant(id)).status) === GrantStatus.Active) break;
+      }
+      return { id, from };
+    }
+
+    it("7.1 clawback is blocked while the dispute window is open", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await expect(c.connect(hr).clawback(id, 40)).to.be.revertedWithCustomError(c, "DisputeWindowOpen");
+    });
+
+    it("7.2 ...and succeeds once it closes — the timeout has a reachable trigger", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await time.increase(WINDOW + 1);
+      await expect(c.connect(hr).clawback(id, 40)).to.not.be.reverted;
+      expect(await c.unvestedAmount(id)).to.equal(0);
+    });
+
+    it("7.3 the employee can contest, which blocks clawback indefinitely", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await c.connect(priya).raiseDispute(id);
+      await time.increase(WINDOW + 1); // waiting it out must NOT help the employer
+      await expect(c.connect(hr).clawback(id, 40)).to.be.revertedWithCustomError(c, "DisputeUnresolved");
+    });
+
+    it("7.4 a relayer may contest on the employee's behalf, a stranger may not", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await expect(c.connect(bystander).raiseDispute(id)).to.be.revertedWithCustomError(c, "NotDisputeRaiser");
+      await c.connect(hr).setDisputeRelayer(bystander.address, true);
+      await expect(c.connect(bystander).raiseDispute(id)).to.not.be.reverted;
+    });
+
+    it("7.5 contesting after the window, or twice, reverts", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await c.connect(priya).raiseDispute(id);
+      await expect(c.connect(priya).raiseDispute(id)).to.be.revertedWithCustomError(c, "DisputeAlreadyRaised");
+
+      const { id: other } = await grantOn(c, raj.address);
+      await c.connect(hr).terminate(other, LeaverType.Bad, await time.latest());
+      await time.increase(WINDOW + 1);
+      await expect(c.connect(raj).raiseDispute(other)).to.be.revertedWithCustomError(c, "DisputeWindowClosed");
+    });
+
+    it("7.6 THE KEY ONE: whoever terminated cannot judge the appeal", async () => {
+      // An appeal decided by the person who fired you is not an appeal.
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      await c.connect(priya).raiseDispute(id);
+
+      // Route the appeal through a multisig that HR can drive -- so the ONLY thing standing
+      // between HR and overturning their own decision is the identity check.
+      const m = await deployArbiter(2, hr.address);
+      await c.connect(hr).setArbiter(await m.getAddress(), true);
+      await expect(resolveVia(m, c, hr, id, true)).to.not.be.reverted;
+
+      // ...and directly, as themselves, they are barred outright.
+      const own = await deployArbiter(2, hr.address);
+      const { id: second } = await grantOn(c, raj.address);
+      await c.connect(hr).terminate(second, LeaverType.Bad, await time.latest());
+      await c.connect(raj).raiseDispute(second);
+      await c.connect(hr).setArbiter(await own.getAddress(), true);
+      await expect(c.connect(hr).resolveDispute(second, true)).to.be.revertedWithCustomError(c, "NotArbiter");
+    });
+
+    it("7.7 an upheld ruling releases the clawback immediately", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      await c.connect(priya).raiseDispute(id);
+
+      const m = await deployArbiter(2, admin.address);
+      await c.connect(hr).setArbiter(await m.getAddress(), true);
+      await resolveVia(m, c, admin, id, true);
+
+      // No further waiting: the window existed to allow a challenge, which has now been heard.
+      await expect(c.connect(hr).clawback(id, 40)).to.not.be.reverted;
+      expect(await c.unvestedAmount(id)).to.equal(0);
+    });
+
+    it("7.8 an overturned ruling reinstates the grant and vesting resumes", async () => {
+      const c = await withWindow();
+      const { id, from } = await grantOn(c, priya.address);
+      await time.increaseTo(from + YEAR + 1);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+
+      await c.connect(priya).raiseDispute(id);
+      const m = await deployArbiter(2, admin.address);
+      await c.connect(hr).setArbiter(await m.getAddress(), true);
+      await resolveVia(m, c, admin, id, false);
+
+      const g = await c.getGrant(id);
+      expect(Number(g.status)).to.equal(GrantStatus.Active);
+      expect(g.terminatedAt).to.equal(0);
+
+      // The frozen cutoff is gone, so time counts again.
+      await time.increaseTo(from + YEAR + 6 * MONTH + 1);
+      expect(await c.vestedAmount(id)).to.equal(CLIFF + 6 * MONTHLY);
+      await expect(c.connect(hr).clawback(id, 40)).to.be.revertedWithCustomError(c, "GrantNotTerminated");
+    });
+
+    it("7.9 only an arbiter can rule", async () => {
+      const c = await withWindow();
+      const { id } = await grantOn(c, priya.address);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      await c.connect(priya).raiseDispute(id);
+      await expect(c.connect(bystander).resolveDispute(id, true)).to.be.revertedWithCustomError(c, "NotArbiter");
+    });
+
+    it("7.10 a good leaver is credited the tranche they were part-way through", async () => {
+      const c = await withWindow();
+      const { id, from } = await grantOn(c, priya.address);
+      await time.increaseTo(from + YEAR + 2 * MONTH + 1); // cliff + 2 months vested
+
+      const before = await c.vestedAmount(id);
+      await c.connect(hr).terminate(id, LeaverType.Good, await time.latest());
+      const after = await c.vestedAmount(id);
+
+      expect(before).to.equal(CLIFF + 2 * MONTHLY);
+      expect(after).to.equal(before + BigInt(MONTHLY)); // the in-flight tranche
+    });
+
+    it("7.11 a bad leaver is not", async () => {
+      const c = await withWindow();
+      const { id, from } = await grantOn(c, priya.address);
+      await time.increaseTo(from + YEAR + 2 * MONTH + 1);
+
+      const before = await c.vestedAmount(id);
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      expect(await c.vestedAmount(id)).to.equal(before);
+    });
+
+    it("7.13 an arbiter must be a multisig — EOAs and 1-of-1s are rejected", async () => {
+      const c = await withWindow();
+
+      await expect(c.connect(hr).setArbiter(admin.address, true)).to.be.revertedWithCustomError(
+        c,
+        "ArbiterMustBeMultisig",
+      );
+
+      const oneOfOne = await deployArbiter(1, admin.address);
+      await expect(c.connect(hr).setArbiter(await oneOfOne.getAddress(), true)).to.be.revertedWithCustomError(
+        c,
+        "ArbiterMustBeMultisig",
+      );
+
+      const twoOfN = await deployArbiter(2, admin.address);
+      await expect(c.connect(hr).setArbiter(await twoOfN.getAddress(), true)).to.not.be.reverted;
+
+      // Removing never needs to prove anything -- a broken arbiter must always be removable.
+      await expect(c.connect(hr).setArbiter(await twoOfN.getAddress(), false)).to.not.be.reverted;
+    });
+
+    it("7.12 forfeited options return to the pool rather than being burned", async () => {
+      const c = await withWindow();
+      const addr = await c.getAddress();
+      const { id } = await grantOn(c, priya.address);
+
+      const supplyBefore = await asset.totalSupply();
+      const poolBefore = await asset.balanceOfByPartition(PARTITION, addr);
+      const forfeit = await c.unvestedAmount(id);
+
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      await time.increase(WINDOW + 1);
+      await c.connect(hr).clawback(id, 40);
+
+      expect(await asset.totalSupply()).to.equal(supplyBefore); // nothing burned
+      expect(await asset.balanceOfByPartition(PARTITION, addr)).to.equal(poolBefore + forfeit);
+      expect(await asset.getLockedAmountForByPartition(PARTITION, priya.address)).to.equal(0);
     });
   });
 });

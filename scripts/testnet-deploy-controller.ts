@@ -28,6 +28,8 @@ const TRANCHE_COUNT = 12;
 // Compressed schedule: the cliff lands during the demo, later tranches stay locked.
 const CLIFF_DELAY = Number(process.env.DEMO_CLIFF_SECONDS ?? 120);
 const TRANCHE_SPACING = Number(process.env.DEMO_TRANCHE_SECONDS ?? 900);
+// Seconds for a demo; a real deployment would use weeks.
+const DISPUTE_WINDOW = Number(process.env.DISPUTE_WINDOW_SECONDS ?? 120);
 
 const REPO_ROOT = process.env.TOKENIZE_IT_ROOT ?? path.resolve(__dirname, "../../../../../../..");
 const DEPLOYMENTS = path.join(REPO_ROOT, "deployments", "hedera-testnet.json");
@@ -54,7 +56,7 @@ async function main() {
 
   step("1", "Deploying ESOPVestingController...");
   const Factory = await ethers.getContractFactory("ESOPVestingController");
-  const controller = await Factory.deploy(tokenAddress, operator.address);
+  const controller = await Factory.deploy(tokenAddress, operator.address, DISPUTE_WINDOW);
   await controller.waitForDeployment();
   const controllerAddress = await controller.getAddress();
   const deployTx = controller.deploymentTransaction();

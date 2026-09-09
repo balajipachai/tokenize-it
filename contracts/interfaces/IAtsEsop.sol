@@ -7,6 +7,14 @@ pragma solidity 0.8.28;
  *      stable, reviewable surface instead of ~100 facets. Signatures verified against
  *      packages/ats/contracts/contracts/facets in the pinned ATS revision.
  */
+/**
+ * @notice The slice of a Safe-style multisig used to check an arbiter is genuinely one.
+ * @dev Only `getThreshold` is needed. Safe and its clones expose it; a plain EOA cannot.
+ */
+interface IMultisig {
+    function getThreshold() external view returns (uint256);
+}
+
 interface IAtsEsop {
     /// @dev Caller must hold the tokens and ROLE_LOCKER. Moves `amount` from the caller to
     ///      `to` and locks it until `expirationTimestamp`.
@@ -23,6 +31,17 @@ interface IAtsEsop {
 
     /// @dev Skips the expiration check. Requires ROLE_LOCKER or ROLE_CONTROLLER.
     function forceReleaseByPartition(bytes32 partition, uint256 lockId, address tokenHolder) external returns (bool);
+
+    /// @dev Forced transfer. Requires ROLE_CONTROLLER and a controllable token. Used to move
+    ///      forfeited options back into the pool without burning them.
+    function controllerTransferByPartition(
+        bytes32 partition,
+        address from,
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bytes calldata operatorData
+    ) external returns (bytes32);
 
     /// @dev Burns from `tokenHolder`'s free balance. Requires ROLE_CONTROLLER and a controllable token.
     ///      Cannot reach locked or held tokens, so force-release must come first.

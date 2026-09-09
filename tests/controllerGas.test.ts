@@ -49,7 +49,7 @@ describe("GAS: ESOPVestingController hot paths", () => {
 
     asset = await ethers.getContractAt("IAsset", base.diamond.target);
     const Factory = await ethers.getContractFactory("ESOPVestingController");
-    controller = await Factory.deploy(base.diamond.target, hr.address);
+    controller = await Factory.deploy(base.diamond.target, hr.address, 0); // no dispute window: measuring gas, not policy
     await controller.waitForDeployment();
     const addr = await controller.getAddress();
 
