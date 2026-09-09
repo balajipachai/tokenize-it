@@ -356,3 +356,14 @@ button.ghost {
   font-size: 11px;
   margin-top: 10px;
 }
+
+label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+label.inline input {
+  padding: 7px 9px;
+}

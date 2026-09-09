@@ -1079,7 +1079,18 @@ no headroom being wasted. Do **not** "fix" anything with a generous hardcoded ga
 charges most of the offered limit even when unused, so an over-generous constant is a real cost
 rather than free safety.
 
-> **Trap that looked like a revert.** `terminate` failed with *"RPC endpoint returned HTTP client
+> **Two clock traps in `terminate`, both found by simulating rather than guessing.**
+> The contract rejects an effective date after `block.timestamp` (to stop anyone
+> forward-dating a termination and manufacturing extra vesting) and before `grantDate`.
+> Sending `Date.now()` reverted with `EffectiveDateInFuture` because the browser clock ran
+> **5 seconds ahead of consensus** — well within normal skew, and a race rather than a
+> misconfiguration. Defaulting instead to "today at midnight" then reverted with
+> `EffectiveDateBeforeGrant` for any grant issued earlier the same day. The console now
+> clamps to `[grantDate, chainNow]` and takes the leaving date from a date picker, which
+> is the honest model anyway: HR terminates as of a real last working day, usually in the
+> past, and back-dating legitimately forfeits everything that would have vested after it.
+>
+> **A separate trap that looked like a revert.** `terminate` failed with *"RPC endpoint returned HTTP client
 > error"*, which reads like a contract revert but is not one — Hedera rejects raw transactions
 > priced below the network minimum, and MetaMask offered less. Cheap calls hit it while expensive
 > ones happened not to. Every issuer write now prices from `eth_gasPrice` with a margin rather than

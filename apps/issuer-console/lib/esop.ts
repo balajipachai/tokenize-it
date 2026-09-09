@@ -28,6 +28,8 @@ export interface Holder {
   granted: number;
   vested: number;
   unvested: number;
+  /** Terminations cannot be dated before this. */
+  grantDate: number | null;
 }
 
 export interface Schedule {
@@ -97,7 +99,7 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
   };
 
   if (grantIds.length === 0) {
-    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0 };
+    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0, grantDate: null };
   }
 
   const grantId = grantIds[grantIds.length - 1];
@@ -124,6 +126,7 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
     granted: Number(grant.totalAmount),
     vested: Number(vested),
     unvested: Number(unvested),
+    grantDate: Number(grant.grantDate),
   };
 }
 
@@ -257,6 +260,19 @@ export async function issueGrant(
   return Number(grantId);
 }
 
+/**
+ * Chain time, not wall-clock time.
+ *
+ * `terminate` rejects an effective date later than `block.timestamp`, so that nobody can
+ * forward-date a termination and manufacture extra vesting. Sending `Date.now()` therefore
+ * reverts whenever the client's clock runs even slightly ahead of consensus — observed at
+ * 5 seconds here, which is well within normal skew. Chain time only moves forward between
+ * reading and mining, so a value taken from the latest block is always still valid.
+ */
+export async function chainNow(): Promise<number> {
+  return Number((await publicClient.getBlock()).timestamp);
+}
+
 export async function terminateGrant(
   d: Deployment,
   account: Address,
@@ -264,11 +280,24 @@ export async function terminateGrant(
   leaver: 1 | 2,
   effectiveAt: number,
 ) {
+  // Clamp both ends rather than trust the caller. Forward-dating is what the contract
+  // guard exists to stop; dating before the grant existed is equally invalid, and bites
+  // in practice because "today at midnight" precedes a grant issued this morning.
+  const [now, grant] = await Promise.all([
+    chainNow(),
+    publicClient.readContract({
+      address: d.esopVestingController.address,
+      abi: controllerAbi,
+      functionName: "getGrant",
+      args: [BigInt(grantId)],
+    }),
+  ]);
+  const at = Math.min(Math.max(effectiveAt, Number(grant.grantDate)), now);
   await write(account, {
     address: d.esopVestingController.address,
     abi: controllerAbi,
     functionName: "terminate",
-    args: [BigInt(grantId), leaver, BigInt(effectiveAt)],
+    args: [BigInt(grantId), leaver, BigInt(at)],
   });
 }
 

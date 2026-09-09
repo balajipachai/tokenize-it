@@ -7,6 +7,7 @@ import { connect, publicClient, watchWallet } from "@/lib/wallet";
 import { controllerAbi, tokenAbi } from "@/lib/abi";
 import {
   buildSchedule,
+  chainNow,
   clawbackGrant,
   issueGrant,
   onboard,
@@ -40,6 +41,10 @@ export function Console() {
   const [cliffMins, setCliffMins] = useState("2");
   const [trancheCount, setTrancheCount] = useState("12");
   const [trancheMins, setTrancheMins] = useState("10");
+
+  // Leaving date, per grant. Defaults to today; HR routinely back-dates to the real
+  // last working day, which forfeits everything that would have vested after it.
+  const [leaveDate, setLeaveDate] = useState<Record<number, string>>({});
 
   useEffect(() => watchWallet(() => window.location.reload()), []);
 
@@ -304,32 +309,41 @@ export function Console() {
               <div className="row">
                 {h.status !== 3 ? (
                   <>
-                    <button
-                      className="danger"
-                      disabled={!account || !!busy}
-                      onClick={() =>
-                        void run("Terminating grant", async () => {
-                          await terminateGrant(d, account!, h.grantId!, 1, Math.floor(Date.now() / 1000));
-                          return `Grant #${h.grantId} terminated as a good leaver. ${fmt(
-                            h.vested,
-                          )} vested retained, ${fmt(h.unvested)} unvested now forfeitable.`;
-                        })
-                      }
-                    >
-                      Good leaver
-                    </button>
-                    <button
-                      className="danger"
-                      disabled={!account || !!busy}
-                      onClick={() =>
-                        void run("Terminating grant", async () => {
-                          await terminateGrant(d, account!, h.grantId!, 2, Math.floor(Date.now() / 1000));
-                          return `Grant #${h.grantId} terminated as a bad leaver.`;
-                        })
-                      }
-                    >
-                      Bad leaver
-                    </button>
+                    <label className="inline">
+                      Last working day
+                      <input
+                        type="date"
+                        value={leaveDate[h.grantId!] ?? new Date().toISOString().slice(0, 10)}
+                        min={h.grantDate ? new Date(h.grantDate * 1000).toISOString().slice(0, 10) : undefined}
+                        max={new Date().toISOString().slice(0, 10)}
+                        onChange={(e) => setLeaveDate((m) => ({ ...m, [h.grantId!]: e.target.value }))}
+                      />
+                    </label>
+                    {([1, 2] as const).map((kind) => (
+                      <button
+                        key={kind}
+                        className="danger"
+                        disabled={!account || !!busy}
+                        onClick={() =>
+                          void run("Terminating grant", async () => {
+                            const picked = leaveDate[h.grantId!];
+                            // A date with no time means midnight; "today" would then be in
+                            // the past by hours, which is fine. Only "today" needs chain time.
+                            const at = picked
+                              ? Math.floor(new Date(`${picked}T00:00:00`).getTime() / 1000)
+                              : await chainNow();
+                            await terminateGrant(d, account!, h.grantId!, kind, at);
+                            return kind === 1
+                              ? `Grant #${h.grantId} terminated as a good leaver. ${fmt(
+                                  h.vested,
+                                )} vested retained, ${fmt(h.unvested)} unvested now forfeitable.`
+                              : `Grant #${h.grantId} terminated as a bad leaver.`;
+                          })
+                        }
+                      >
+                        {kind === 1 ? "Good leaver" : "Bad leaver"}
+                      </button>
+                    ))}
                     <button
                       className="ghost"
                       disabled={!account || !!busy}
