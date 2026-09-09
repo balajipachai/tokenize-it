@@ -20,7 +20,7 @@ and their rationale, and the phased delivery plan.
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
-| 4 | Lending | ✅ live on testnet, wired into the portal |
+| 4 | Lending | ✅ live on testnet — borrow, repay and liquidation all driven end-to-end |
 | 5 | Issuer console | ✅ live, with dispute window + arbitration |
 | 6 | Automation + polish | |
 

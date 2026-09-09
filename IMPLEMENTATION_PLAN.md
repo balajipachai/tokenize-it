@@ -1205,7 +1205,7 @@ upside. If you are behind, cut Phase 6 first and the cap table from Phase 5 seco
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | ~~Hold cannot be executed to a non-KYC'd pool~~ | ~~High~~ → **Closed** | Confirmed by spike #1 (§5.2). Pledge and repay are unrestricted; liquidation needs the pool KYC'd + allowlisted, which is a one-time deployment step |
+| 1 | ~~Hold cannot be executed to a non-KYC'd pool~~ | ~~High~~ → **Closed** | Confirmed by spike #1 (§5.2), then **exercised for real** by `testnet:liquidation-demo`: the pool seized 2,174 of 5,000 pledged shares and released the 2,826 surplus. Pledge and repay are unrestricted; the seizure leg needs the pool KYC'd + allowlisted, which `testnet:deploy-lending` does |
 | 1b | **Perpetual hold used to dodge clawback** | Medium *(new, from spike C2)* | Held tokens are immune to `controllerRedeemByPartition` and there is no issuer override. `ESOPLendingPool` must never issue a hold with `expirationTimestamp = 0`, and must cap user-supplied expirations |
 | 2 | ~~Privy hollow accounts un-activated~~ | ~~High~~ → **Low** | **Retired by §6.** Employees never send transactions, so their accounts never need activating. Only the backend relayer needs HBAR — one account to fund and monitor |
 | 3 | ~~Chainlink feeds stale or absent~~ | ~~Medium~~ → **Closed** | Verified live (§5.3.2). Residual: use **per-feed** staleness thresholds — USDC/USD was 18 h old at check time and a global 1 h guard would brick the pool |
