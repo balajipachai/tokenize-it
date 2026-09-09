@@ -758,12 +758,9 @@ Confirmed working end to end: `transferAndLockByPartition` → `releaseByPartiti
 
 **Findings that change the build.** Four of these would have cost real time if met mid-Phase-4.
 
-1. **Risk #5 is resolved with a number.** A 37-tranche grant costs **425k gas average, 535k max per
-   tranche, 15.7M total**. Hedera's per-transaction contract-call ceiling is 15M, so the grant
-   **must** be one transaction per tranche — batching the whole schedule into a single call would
-   exceed the ceiling on its own. Budget ~28 tranches as the absolute per-transaction maximum and
-   do not go near it. `createGrant` is therefore a loop of N transactions, and the issuer console
-   needs a progress indicator rather than a single spinner.
+1. **Risk #5 is resolved with a number.** A tranche locked as its **own transaction** costs
+   **425k gas average, 535k max**. See the correction in Phase 5 — batched inside `fundTranches`
+   the marginal cost is roughly half that, which changes the batching rule substantially.
 
 2. **Multi-partition disables three APIs.** `lock()`, `release()` and `freezePartialTokens()` all
    carry `onlyWithoutMultiPartition`. Use `lockByPartition` / `releaseByPartition` throughout — and

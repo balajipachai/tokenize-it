@@ -22,6 +22,27 @@ export function walletClient(account: Address) {
   return createWalletClient({ account, chain: hederaTestnet, transport: custom(window.ethereum) });
 }
 
+/**
+ * MetaMask does not notify a page that it has been disconnected in any way React can
+ * react to safely — the injected provider keeps working but the account list empties.
+ * Reloading is the honest response: it clears any half-rendered admin state rather
+ * than leaving buttons that will revert.
+ */
+export function watchWallet(onChange: () => void): () => void {
+  const eth = window.ethereum as unknown as {
+    on?: (e: string, h: (...a: unknown[]) => void) => void;
+    removeListener?: (e: string, h: (...a: unknown[]) => void) => void;
+  };
+  if (!eth?.on) return () => {};
+  const handler = () => onChange();
+  eth.on("accountsChanged", handler);
+  eth.on("chainChanged", handler);
+  return () => {
+    eth.removeListener?.("accountsChanged", handler);
+    eth.removeListener?.("chainChanged", handler);
+  };
+}
+
 export async function connect(): Promise<Address> {
   if (!window.ethereum) throw new Error("No wallet found. Install MetaMask to sign issuer actions.");
 

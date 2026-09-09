@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { isAddress } from "viem";
-import { connect, publicClient } from "@/lib/wallet";
+import { connect, publicClient, watchWallet } from "@/lib/wallet";
 import { controllerAbi, tokenAbi } from "@/lib/abi";
 import {
   buildSchedule,
@@ -40,6 +40,8 @@ export function Console() {
   const [cliffMins, setCliffMins] = useState("2");
   const [trancheCount, setTrancheCount] = useState("12");
   const [trancheMins, setTrancheMins] = useState("10");
+
+  useEffect(() => watchWallet(() => window.location.reload()), []);
 
   useEffect(() => {
     fetch("/api/deployment")
@@ -245,6 +247,14 @@ export function Console() {
                 const id = await issueGrant(d, account!, employee as Address, schedule, (f, t) =>
                   setBusy({ what: "Issuing grant", detail: `funded ${f}/${t} tranches` }),
                 );
+                // Clear the form so the next grant starts blank rather than looking
+                // like it is about to re-issue the one that just succeeded.
+                setEmployee("");
+                setTotal("4800");
+                setCliffPct("25");
+                setCliffMins("2");
+                setTrancheCount("12");
+                setTrancheMins("10");
                 return `Grant #${id} issued and fully funded.`;
               })
             }

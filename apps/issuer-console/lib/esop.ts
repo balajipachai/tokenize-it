@@ -1,6 +1,7 @@
 "use client";
 
 import type { Address } from "viem";
+import { hederaTestnet } from "./chain";
 import { publicClient, walletClient } from "./wallet";
 import { controllerAbi, tokenAbi } from "./abi";
 
@@ -126,14 +127,49 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
   };
 }
 
+/**
+ * Hedera rejects raw transactions whose gas price is below the network minimum, and
+ * MetaMask — which does not know this chain well — sometimes offers less. That surfaces
+ * as an opaque "RPC endpoint returned HTTP client error" at eth_sendRawTransaction,
+ * which reads like a contract revert but is not one.
+ *
+ * So price every write from the network rather than leaving it to the wallet. The gas
+ * LIMIT is still estimated rather than hardcoded: Hedera charges most of the offered
+ * limit even when unused, so an over-generous constant is a real cost, not free safety.
+ */
+async function txOverrides(estimate: bigint) {
+  const price = await publicClient.getGasPrice();
+  return {
+    gas: (estimate * 115n) / 100n,
+    gasPrice: (price * 120n) / 100n,
+  };
+}
+
 async function send(account: Address, hash: Promise<`0x${string}`>) {
   const tx = await hash;
   await publicClient.waitForTransactionReceipt({ hash: tx });
   return tx;
 }
 
-export async function onboard(d: Deployment, account: Address, employee: Address, credentialRef: string) {
+interface WriteArgs {
+  address: Address;
+  abi: readonly unknown[];
+  functionName: string;
+  args: readonly unknown[];
+}
+
+/** Estimates, prices, submits and waits — the path every issuer write takes. */
+async function write(account: Address, call: WriteArgs): Promise<`0x${string}`> {
+  const estimate = await publicClient.estimateContractGas({ ...call, account } as never);
+  const overrides = await txOverrides(estimate);
   const w = walletClient(account);
+  return send(
+    account,
+    w.writeContract({ ...call, ...overrides, account, chain: hederaTestnet } as never),
+  );
+}
+
+export async function onboard(d: Deployment, account: Address, employee: Address, credentialRef: string) {
   const token = d.esopToken.address;
 
   // grantKyc reverts unless the attesting issuer is registered, so make sure the
@@ -145,7 +181,7 @@ export async function onboard(d: Deployment, account: Address, employee: Address
     args: [account],
   });
   if (!registered) {
-    await send(account, w.writeContract({ address: token, abi: tokenAbi, functionName: "addIssuer", args: [account] }));
+    await write(account, { address: token, abi: tokenAbi, functionName: "addIssuer", args: [account] });
   }
 
   const kyc = await publicClient.readContract({
@@ -157,15 +193,12 @@ export async function onboard(d: Deployment, account: Address, employee: Address
   if (Number(kyc.status) !== 1) {
     const now = BigInt(Math.floor(Date.now() / 1000));
     const validTo = now + 365n * 24n * 60n * 60n;
-    await send(
-      account,
-      w.writeContract({
-        address: token,
-        abi: tokenAbi,
-        functionName: "grantKyc",
-        args: [employee, credentialRef, now, validTo, account],
-      }),
-    );
+    await write(account, {
+      address: token,
+      abi: tokenAbi,
+      functionName: "grantKyc",
+      args: [employee, credentialRef, now, validTo, account],
+    });
   }
 
   const listed = await publicClient.readContract({
@@ -175,10 +208,7 @@ export async function onboard(d: Deployment, account: Address, employee: Address
     args: [employee],
   });
   if (!listed) {
-    await send(
-      account,
-      w.writeContract({ address: token, abi: tokenAbi, functionName: "addToControlList", args: [employee] }),
-    );
+    await write(account, { address: token, abi: tokenAbi, functionName: "addToControlList", args: [employee] });
   }
 }
 
@@ -189,7 +219,6 @@ export async function issueGrant(
   schedule: Schedule,
   onProgress: (funded: number, total: number) => void,
 ): Promise<number> {
-  const w = walletClient(account);
   const controller = d.esopVestingController.address;
 
   const grantId = await publicClient.readContract({
@@ -198,29 +227,24 @@ export async function issueGrant(
     functionName: "nextGrantId",
   });
 
-  await send(
-    account,
-    w.writeContract({
-      address: controller,
-      abi: controllerAbi,
-      functionName: "createGrant",
-      args: [employee, d.esopToken.partition, schedule.amounts, schedule.dates],
-    }),
-  );
+  await write(account, {
+    address: controller,
+    abi: controllerAbi,
+    functionName: "createGrant",
+    args: [employee, d.esopToken.partition, schedule.amounts, schedule.dates],
+  });
 
-  // One transaction per batch: a full schedule cannot be funded in one call without
-  // exceeding Hedera's 15M gas ceiling, so this is a loop by necessity, not choice.
+  // Measured on testnet: ~230k gas per tranche when batched, so ~40 fits comfortably
+  // under Hedera's 15M ceiling. (A tranche costs ~425k as its OWN transaction — the
+  // difference is the base fee and calldata amortising, and storage staying warm.)
   const total = schedule.amounts.length;
   for (;;) {
-    await send(
-      account,
-      w.writeContract({
-        address: controller,
-        abi: controllerAbi,
-        functionName: "fundTranches",
-        args: [grantId, 20],
-      }),
-    );
+    await write(account, {
+      address: controller,
+      abi: controllerAbi,
+      functionName: "fundTranches",
+      args: [grantId, 40],
+    });
     const g = await publicClient.readContract({
       address: controller,
       abi: controllerAbi,
@@ -240,27 +264,24 @@ export async function terminateGrant(
   leaver: 1 | 2,
   effectiveAt: number,
 ) {
-  const w = walletClient(account);
-  await send(
-    account,
-    w.writeContract({
-      address: d.esopVestingController.address,
-      abi: controllerAbi,
-      functionName: "terminate",
-      args: [BigInt(grantId), leaver, BigInt(effectiveAt)],
-    }),
-  );
+  await write(account, {
+    address: d.esopVestingController.address,
+    abi: controllerAbi,
+    functionName: "terminate",
+    args: [BigInt(grantId), leaver, BigInt(effectiveAt)],
+  });
 }
 
 export async function clawbackGrant(d: Deployment, account: Address, grantId: number): Promise<number> {
-  const w = walletClient(account);
   const controller = d.esopVestingController.address;
   let rounds = 0;
   for (;;) {
-    await send(
-      account,
-      w.writeContract({ address: controller, abi: controllerAbi, functionName: "clawback", args: [BigInt(grantId), 20] }),
-    );
+    await write(account, {
+      address: controller,
+      abi: controllerAbi,
+      functionName: "clawback",
+      args: [BigInt(grantId), 40],
+    });
     rounds++;
     const left = await publicClient.readContract({
       address: controller,
@@ -273,14 +294,10 @@ export async function clawbackGrant(d: Deployment, account: Address, grantId: nu
 }
 
 export async function setFrozen(d: Deployment, account: Address, employee: Address, frozen: boolean) {
-  const w = walletClient(account);
-  await send(
-    account,
-    w.writeContract({
-      address: d.esopToken.address,
-      abi: tokenAbi,
-      functionName: "setAddressFrozen",
-      args: [employee, frozen],
-    }),
-  );
+  await write(account, {
+    address: d.esopToken.address,
+    abi: tokenAbi,
+    functionName: "setAddressFrozen",
+    args: [employee, frozen],
+  });
 }
