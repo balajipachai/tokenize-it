@@ -21,7 +21,7 @@ and their rationale, and the phased delivery plan.
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
 | 4 | Lending | next |
-| 5 | Issuer console | 🟡 built; reads verified, writes need your MetaMask |
+| 5 | Issuer console | ✅ live, with dispute window + arbitration |
 | 6 | Automation + polish | |
 
 ## Getting started
@@ -80,7 +80,7 @@ Currently verified, both `exact_match`:
 | Contract | Address |
 |---|---|
 | ESOP token (ResolverProxy) | [`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) |
-| ESOPVestingController | [`0xe630d8…3AE3`](https://hashscan.io/testnet/contract/0xe630d8fa035A99FB1e2ac51Df790059674313AE3) |
+| ESOPVestingController | [`0x7b8240…c346`](https://hashscan.io/testnet/contract/0x7b82403588e00c46B6e8E0F3274062c07765c346) |
 
 ## Issuer console
 

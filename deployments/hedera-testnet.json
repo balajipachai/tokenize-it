@@ -13,52 +13,35 @@
     "creationTxHash": null
   },
   "esopVestingController": {
-    "address": "0xe630d8fa035A99FB1e2ac51Df790059674313AE3",
+    "address": "0x7b82403588e00c46B6e8E0F3274062c07765c346",
     "contractIdentifier": "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
-    "creationTxHash": "0x7b66fc6b64b38e2ff8167d2bdf3da3fd3ec5ff0e078f2ba6ab6511bfe2876303",
-    "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
-  },
-  "demoGrant": {
-    "grantId": 1,
-    "employee": "0x96bFe71ec9C60eE0b38b7814d9e010c287631541",
-    "partition": "0x0000000000000000000000000000000000000000000000000000000000000001",
-    "totalAmount": 2400,
-    "trancheCount": 13,
-    "cliffAt": 1788892114,
-    "createdAt": "2026-09-08T18:26:49.993Z"
+    "creationTxHash": "0xd5b5b34672026ba8943c99c62ef0967bd2f69bbecf051cbcaa45d54a040240c8",
+    "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
+    "disputeWindowSeconds": 180,
+    "demoArbiter": {
+      "address": "0xE8dFEFA22396a95D607e110281fC6CC883fa4184",
+      "note": "2-of-N stand-in so the appeal path can be demonstrated. NOT a Safe; replace in production."
+    }
   },
   "grants": [
     {
-      "grantId": 2,
+      "grantId": 1,
       "employee": "0x8a3DbE90c97943D8dd1E7D95F6857684a99A16e9",
       "totalAmount": 2400,
       "trancheCount": 13,
-      "cliffAt": 1788931462,
-      "createdAt": "2026-09-09T05:23:31.284Z"
+      "cliffAt": 1788944528,
+      "createdAt": "2026-09-09T08:59:58.020Z"
     },
     {
-      "grantId": 3,
+      "grantId": 2,
       "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
       "totalAmount": 2400,
       "trancheCount": 13,
-      "cliffAt": 1788934088,
-      "createdAt": "2026-09-09T06:07:08.577Z"
-    },
-    {
-      "grantId": 4,
-      "employee": "0x8a3DbE90c97943D8dd1E7D95F6857684a99A16e9",
-      "totalAmount": 2400,
-      "trancheCount": 13,
-      "cliffAt": 1788934536,
-      "createdAt": "2026-09-09T06:14:46.500Z"
-    },
-    {
-      "grantId": 5,
-      "employee": "0x8a3DbE90c97943D8dd1E7D95F6857684a99A16e9",
-      "totalAmount": 2400,
-      "trancheCount": 13,
-      "cliffAt": 1788934605,
-      "createdAt": "2026-09-09T06:15:48.658Z"
+      "cliffAt": 1788944548,
+      "createdAt": "2026-09-09T09:00:10.719Z"
     }
+  ],
+  "previousControllers": [
+    "0xe630d8fa035A99FB1e2ac51Df790059674313AE3"
   ]
 }
