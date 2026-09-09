@@ -380,9 +380,10 @@ export function Dashboard() {
               <span className={`dot ${position.compliance.kycGranted ? "vested" : ""}`} />
               <span>
                 KYC {position.compliance.kycGranted ? "verified" : "not granted"}
-                {position.compliance.validTo && ` · valid to ${new Date(position.compliance.validTo * 1000)
-                  .toISOString()
-                  .slice(0, 10)}`}
+                {position.compliance.kycGranted &&
+                  (position.compliance.validTo
+                    ? ` · valid to ${new Date(position.compliance.validTo * 1000).toISOString().slice(0, 10)}`
+                    : " · no expiry")}
               </span>
             </li>
             <li className="tranche two">

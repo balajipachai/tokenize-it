@@ -422,7 +422,7 @@ export function Console() {
             {h.credentialId && (
               <p className="muted small">
                 Credential <code>{h.credentialId}</code>
-                {h.validTo && ` · valid to ${new Date(h.validTo * 1000).toISOString().slice(0, 10)}`}
+                {h.kycGranted && (h.validTo ? ` · valid to ${new Date(h.validTo * 1000).toISOString().slice(0, 10)}` : " · no expiry")}
               </p>
             )}
           </div>

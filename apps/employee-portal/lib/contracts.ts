@@ -138,6 +138,14 @@ async function vestTxByTranche(
   return map;
 }
 
+/**
+ * Largest instant a JS Date can represent, in seconds. A KYC `validTo` is a uint256, and
+ * ATS conventionally uses MAX_UINT256 to mean "no expiry" — converting that to a Date
+ * yields Invalid Date, and toISOString() then throws and takes the page down. Anything
+ * beyond this is reported as "no expiry" rather than a date, which is also what it means.
+ */
+const MAX_JS_DATE_SECONDS = 8_640_000_000_000n;
+
 async function readCompliance(token: Address, wallet: Address): Promise<ComplianceView> {
   const [kyc, allowlisted] = await Promise.all([
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "getKycFor", args: [wallet] }),
@@ -149,7 +157,7 @@ async function readCompliance(token: Address, wallet: Address): Promise<Complian
     allowlisted,
     credentialId: granted && kyc.vcId ? kyc.vcId : null,
     issuer: granted ? kyc.issuer : null,
-    validTo: granted && kyc.validTo > 0n ? Number(kyc.validTo) : null,
+    validTo: granted && kyc.validTo > 0n && kyc.validTo <= MAX_JS_DATE_SECONDS ? Number(kyc.validTo) : null,
   };
 }
 

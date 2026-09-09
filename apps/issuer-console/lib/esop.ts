@@ -67,6 +67,14 @@ export function buildSchedule(
   return { amounts, dates };
 }
 
+/**
+ * Largest instant a JS Date can represent, in seconds. A KYC `validTo` is a uint256, and
+ * ATS conventionally uses MAX_UINT256 to mean "no expiry" — converting that to a Date
+ * yields Invalid Date, and toISOString() then throws and takes the page down. Anything
+ * beyond this is reported as "no expiry" rather than a date, which is also what it means.
+ */
+const MAX_JS_DATE_SECONDS = 8_640_000_000_000n;
+
 export async function readHolder(d: Deployment, address: Address): Promise<Holder> {
   const token = d.esopToken.address;
   const controller = d.esopVestingController.address;
@@ -95,7 +103,7 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
     kycGranted: Number(kyc.status) === 1,
     allowlisted,
     credentialId: kyc.vcId || null,
-    validTo: kyc.validTo > 0n ? Number(kyc.validTo) : null,
+    validTo: kyc.validTo > 0n && kyc.validTo <= MAX_JS_DATE_SECONDS ? Number(kyc.validTo) : null,
     spendable: Number(spendable),
     locked: Number(locked),
   };
