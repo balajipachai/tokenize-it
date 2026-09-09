@@ -28,9 +28,18 @@ interface Borrowing {
 
 const HASHSCAN = "https://hashscan.io/testnet";
 const money = (v: string) => Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Debt figures keep their full precision. Interest accrues every second, so a loan of 500
+ * is owed back as 500.000166 — and rounding that to cents advertises a smaller number than
+ * the pool actually pulls, which is how someone ends up short by a fraction of a cent and
+ * cannot work out why their repayment failed.
+ */
+const owedAmount = (v: string) =>
+  Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const shortHash = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
 
-export function Borrow({ onChanged }: { onChanged: () => void }) {
+export function Borrow({ wallet, onChanged }: { wallet: string; onChanged: () => void }) {
   const { getAccessToken } = usePrivy();
   const { signTypedData } = useSignTypedData();
 
@@ -57,7 +66,6 @@ export function Borrow({ onChanged }: { onChanged: () => void }) {
 
   /** Signs whatever payload the server asks for, then sends it back to be relayed. */
   async function signAndRelay(url: string, prepare: object, extract: (b: any) => any, label: string) {
-    setBusy(label);
     setError(null);
     setNotice(null);
     try {
@@ -68,18 +76,34 @@ export function Borrow({ onChanged }: { onChanged: () => void }) {
       const prepBody = await prep.json();
       if (!prep.ok) throw new Error(prepBody.error ?? "Could not prepare that.");
 
+      // Deliberately no overlay yet. Privy's signature prompt is a modal in this same page,
+      // and covering it hides the very thing we are waiting for — the request just sits
+      // there looking hung, with nothing to click.
+      // Pin the signer. Once an account has more than one wallet linked, Privy signs with
+      // whichever it considers current, which is not necessarily the one holding the shares
+      // — and the token only accepts a hold signed by the owner, so the wrong wallet costs
+      // a reverted transaction. `wallet` is the address the server resolved for this user.
       const payload = extract(prepBody);
-      const { signature } = await signTypedData({
-        domain: payload.domain,
-        types: payload.types,
-        primaryType: payload.primaryType,
-        message: payload.message,
-      });
+      const { signature } = await signTypedData(
+        {
+          domain: payload.domain,
+          types: payload.types,
+          primaryType: payload.primaryType,
+          message: payload.message,
+        },
+        { address: wallet },
+      );
 
+      // Signed. From here it is all relayer work, so the overlay is safe and useful.
+      setBusy(label);
+
+      // Echo the exact message back. The server builds this payload twice — once to hand it
+      // over and once to verify — and anything it re-derives from the clock or from accruing
+      // interest would differ by the seconds spent signing, invalidating the signature.
       const send = await fetch(url, {
         method: "POST",
         headers: head,
-        body: JSON.stringify({ ...prepare, signature }),
+        body: JSON.stringify({ ...prepare, signature, signed: payload.message }),
       });
       const sendBody = await send.json();
       if (!send.ok) throw new Error(sendBody.error ?? "That did not go through.");
@@ -134,7 +158,7 @@ export function Borrow({ onChanged }: { onChanged: () => void }) {
             <span className="spinner big" />
             <p className="overlay-what">{busy}</p>
             <p className="muted">
-              Sign in your wallet when asked. Nothing is sold, and you pay no network fee.
+              Submitting to Hedera. Nothing is sold, and you pay no network fee.
             </p>
           </div>
         </div>
@@ -160,7 +184,7 @@ export function Borrow({ onChanged }: { onChanged: () => void }) {
           <div key={loan.loanId}>
             <div className="stats">
               <div className="stat">
-                <div className="value">{money(loan.debt)}</div>
+                <div className="value">{owedAmount(loan.debt)}</div>
                 <div className="label">Owed (USDC)</div>
               </div>
               <div className="stat">
@@ -175,10 +199,17 @@ export function Borrow({ onChanged }: { onChanged: () => void }) {
             <p className="muted" style={{ marginTop: 12 }}>
               Your {state.pledgeable === 0 ? "shares are" : "pledged shares are"} still yours — held as
               collateral in your own wallet, not transferred to anyone. Repay and they are free again.
+              Interest accrues every second, so you owe a little more than you borrowed.
             </p>
+            {Number(state.stableBalance) < Number(loan.debt) && (
+              <div className="banner error" style={{ marginTop: 12 }}>
+                You hold {money(state.stableBalance)} USDC but owe {owedAmount(loan.debt)}. Top up by{" "}
+                {owedAmount(String(Number(loan.debt) - Number(state.stableBalance)))} USDC to close this loan.
+              </div>
+            )}
             <div style={{ marginTop: 14 }}>
               <button disabled={!!busy} onClick={() => void repay(loan.loanId)}>
-                Repay {money(loan.debt)} USDC
+                Repay {owedAmount(loan.debt)} USDC
               </button>
             </div>
           </div>

@@ -21,6 +21,9 @@
     "testnet:grant-roles": "bash scripts/ats-run.sh testnet-grant-roles.ts hedera-testnet",
     "testnet:set-token-name": "bash scripts/ats-run.sh testnet-set-token-name.ts hedera-testnet",
     "testnet:deploy-lending": "bash scripts/ats-run.sh testnet-deploy-lending.ts hedera-testnet",
-    "testnet:lending-demo": "bash scripts/ats-run.sh testnet-lending-demo.ts hedera-testnet"
+    "testnet:lending-demo": "bash scripts/ats-run.sh testnet-lending-demo.ts hedera-testnet",
+    "testnet:grant-relayer": "bash scripts/ats-run.sh testnet-grant-relayer.ts hedera-testnet",
+    "testnet:fund-usdc": "bash scripts/ats-run.sh testnet-fund-usdc.ts hedera-testnet",
+    "testnet:open-loan": "bash scripts/ats-run.sh testnet-open-loan.ts hedera-testnet"
   }
 }

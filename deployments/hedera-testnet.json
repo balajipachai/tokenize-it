@@ -69,5 +69,9 @@
       "source": "Chainlink USDC/USD on Hedera testnet"
     },
     "deployedAt": "2026-09-09T11:53:40.214Z"
+  },
+  "relayer": {
+    "address": "0x534D3B33113cF1435d63969059F593bb12e04069",
+    "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only — it cannot move tokens without a holder signature."
   }
 }

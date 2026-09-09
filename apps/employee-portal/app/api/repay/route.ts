@@ -17,8 +17,34 @@ export async function POST(req: Request) {
 
   // Headroom: interest accrues per second, so approving the figure shown would fall short
   // by whatever the transaction takes to mine. The pool only ever pulls what is owed.
-  const value = parseUnits(loan.debt, 6) + parseUnits("1", 6);
-  const permit = await buildRepayPermit(auth.wallet, value);
+  const owed = parseUnits(loan.debt, 6);
+  let value = owed + parseUnits("1", 6);
+  let deadline: bigint | undefined;
+
+  // On the signing pass both the value and the deadline must be the ones actually signed —
+  // debt accrues between the two calls, so recomputing would invalidate the permit. Bound
+  // them instead: enough to clear the debt, not so much that a stale payload over-approves.
+  if (body.signature) {
+    if (body.signed?.value === undefined || body.signed?.deadline === undefined) {
+      return NextResponse.json({ error: "That signature is missing its terms. Try again." }, { status: 400 });
+    }
+    try {
+      value = BigInt(body.signed.value);
+      deadline = BigInt(body.signed.deadline);
+    } catch {
+      return NextResponse.json({ error: "That signature's terms are malformed." }, { status: 400 });
+    }
+    if (value < owed || value > owed + parseUnits("5", 6)) {
+      return NextResponse.json({ error: "The amount owed has moved. Try the repayment again." }, { status: 409 });
+    }
+  }
+
+  let permit;
+  try {
+    permit = await buildRepayPermit(auth.wallet, value, deadline);
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Could not prepare that." }, { status: 400 });
+  }
 
   if (!body.signature) {
     return NextResponse.json({

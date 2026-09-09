@@ -373,7 +373,7 @@ export function Dashboard() {
         </>
       )}
 
-      {position?.hasGrant && <Borrow onChanged={() => void load()} />}
+      {position?.hasGrant && <Borrow wallet={position.wallet} onChanged={() => void load()} />}
 
       {position && (
         <div className="card">

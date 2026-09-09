@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseUnits, type Hex } from "viem";
 import { requireWallet } from "@/lib/privyServer";
-import { buildPledge, readBorrowing, relayBorrow } from "@/lib/lending";
+import { buildPledge, readBorrowing, relayBorrow, type PledgeTiming } from "@/lib/lending";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +49,28 @@ export async function POST(req: Request) {
   }
   if (amountUsdc <= 0n) return NextResponse.json({ error: "Choose an amount to borrow." }, { status: 400 });
 
-  const pledge = await buildPledge(auth.wallet, shares, amountUsdc, termDays);
+  // On the signing pass, rebuild around the exact timestamps the employee signed rather than
+  // fresh ones — see buildPledge. `signed` is echoed by the client and bounds-checked there.
+  let timing: PledgeTiming | undefined;
+  if (body.signature) {
+    const hold = body.signed?._protectedHold?.hold;
+    const deadline = body.signed?._protectedHold?.deadline;
+    if (hold?.expirationTimestamp === undefined || deadline === undefined) {
+      return NextResponse.json({ error: "That signature is missing its terms. Try again." }, { status: 400 });
+    }
+    try {
+      timing = { expirationTimestamp: BigInt(hold.expirationTimestamp), deadline: BigInt(deadline) };
+    } catch {
+      return NextResponse.json({ error: "That signature's terms are malformed." }, { status: 400 });
+    }
+  }
+
+  let pledge;
+  try {
+    pledge = await buildPledge(auth.wallet, shares, amountUsdc, termDays, timing);
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Could not prepare that." }, { status: 400 });
+  }
 
   if (!body.signature) {
     // Serialised because JSON cannot carry bigints, and the client only needs to sign it.
