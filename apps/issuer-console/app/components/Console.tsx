@@ -1,0 +1,369 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { Address } from "viem";
+import { isAddress } from "viem";
+import { connect, publicClient } from "@/lib/wallet";
+import { controllerAbi, tokenAbi } from "@/lib/abi";
+import {
+  buildSchedule,
+  clawbackGrant,
+  issueGrant,
+  onboard,
+  readHolder,
+  setFrozen,
+  terminateGrant,
+  type Deployment,
+  type Holder,
+} from "@/lib/esop";
+
+const HASHSCAN = "https://hashscan.io/testnet";
+const fmt = (n: number) => n.toLocaleString("en-US");
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+type Busy = { what: string; detail?: string } | null;
+
+export function Console() {
+  const [account, setAccount] = useState<Address | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [d, setD] = useState<Deployment | null>(null);
+  const [holders, setHolders] = useState<Holder[]>([]);
+  const [pool, setPool] = useState<{ supply: number; max: number; treasury: number } | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Grant form
+  const [employee, setEmployee] = useState("");
+  const [total, setTotal] = useState("4800");
+  const [cliffPct, setCliffPct] = useState("25");
+  const [cliffMins, setCliffMins] = useState("2");
+  const [trancheCount, setTrancheCount] = useState("12");
+  const [trancheMins, setTrancheMins] = useState("10");
+
+  useEffect(() => {
+    fetch("/api/deployment")
+      .then((r) => r.json())
+      .then((body) => (body.error ? setError(body.error) : setD(body)))
+      .catch(() => setError("Could not read the deployment record."));
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!d) return;
+    const known = Array.from(
+      new Set([...(d.grants ?? []).map((g) => g.employee), ...(d.demoGrant ? [d.demoGrant.employee] : [])]),
+    ) as Address[];
+    const [rows, supply, max, treasury] = await Promise.all([
+      Promise.all(known.map((a) => readHolder(d, a))),
+      publicClient.readContract({ address: d.esopToken.address, abi: tokenAbi, functionName: "totalSupply" }),
+      publicClient.readContract({ address: d.esopToken.address, abi: tokenAbi, functionName: "getMaxSupply" }),
+      publicClient.readContract({
+        address: d.esopToken.address,
+        abi: tokenAbi,
+        functionName: "balanceOfByPartition",
+        args: [d.esopToken.partition, d.esopVestingController.address],
+      }),
+    ]);
+    setHolders(rows);
+    setPool({ supply: Number(supply), max: Number(max), treasury: Number(treasury) });
+  }, [d]);
+
+  useEffect(() => {
+    // Surfacing this matters: a silent failure here renders an empty console that
+    // looks like "no employees yet" rather than "the reads broke".
+    refresh().catch((e) => setError(e instanceof Error ? e.message.split("\n")[0] : "Could not read chain state."));
+  }, [refresh]);
+
+  async function doConnect() {
+    try {
+      const a = await connect();
+      setAccount(a);
+      if (d) {
+        setIsAdmin(
+          await publicClient.readContract({
+            address: d.esopVestingController.address,
+            abi: controllerAbi,
+            functionName: "isGrantAdmin",
+            args: [a],
+          }),
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not connect.");
+    }
+  }
+
+  async function run(what: string, fn: () => Promise<string | void>) {
+    setBusy({ what });
+    setError(null);
+    setNotice(null);
+    try {
+      const msg = await fn();
+      if (msg) setNotice(msg);
+      await refresh();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      // Wallet rejections are a normal outcome, not a failure worth shouting about.
+      setError(/User rejected|denied/i.test(raw) ? "Signature rejected in your wallet." : raw.split("\n")[0]);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error && !d) {
+    return (
+      <div className="center">
+        <div className="card">
+          <h2>Not ready</h2>
+          <p className="muted">{error}</p>
+        </div>
+      </div>
+    );
+  }
+  if (!d) {
+    return (
+      <div className="center">
+        <span className="spinner" />
+      </div>
+    );
+  }
+
+  const grantValid = isAddress(employee) && Number(total) > 0 && Number(trancheCount) > 0;
+
+  return (
+    <div className="shell">
+      <header>
+        <div>
+          <h1>Issuer console</h1>
+          <p className="muted">
+            {d.esopToken.name} · {d.esopToken.symbol} ·{" "}
+            <a className="link" href={`${HASHSCAN}/contract/${d.esopToken.address}`} target="_blank" rel="noreferrer">
+              {short(d.esopToken.address)}
+            </a>
+          </p>
+        </div>
+        {account ? (
+          <div style={{ textAlign: "right" }}>
+            <code>{short(account)}</code>
+            <div className={`muted ${isAdmin === false ? "warn" : ""}`}>
+              {isAdmin === null ? "…" : isAdmin ? "grant admin" : "not a grant admin — writes will revert"}
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => void doConnect()}>Connect wallet</button>
+        )}
+      </header>
+
+      {error && <div className="banner error">{error}</div>}
+      {notice && <div className="banner ok">{notice}</div>}
+      {busy && (
+        <div className="banner busy">
+          <span className="spinner small" /> {busy.what}
+          {busy.detail && ` · ${busy.detail}`}
+        </div>
+      )}
+
+      {pool && (
+        <div className="card">
+          <h2>Option pool</h2>
+          <div className="stats">
+            <div className="stat">
+              <div className="value">{fmt(pool.max)}</div>
+              <div className="label">Authorised</div>
+            </div>
+            <div className="stat">
+              <div className="value">{fmt(pool.supply)}</div>
+              <div className="label">Issued</div>
+            </div>
+            <div className="stat">
+              <div className="value">{fmt(pool.treasury)}</div>
+              <div className="label">Unallocated</div>
+            </div>
+            <div className="stat">
+              <div className="value">{fmt(holders.reduce((a, h) => a + h.granted, 0))}</div>
+              <div className="label">Granted to staff</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <h2>Issue a grant</h2>
+        <div className="grid">
+          <label>
+            Employee wallet
+            <input value={employee} onChange={(e) => setEmployee(e.target.value)} placeholder="0x…" />
+          </label>
+          <label>
+            Options
+            <input value={total} onChange={(e) => setTotal(e.target.value)} inputMode="numeric" />
+          </label>
+          <label>
+            Cliff %
+            <input value={cliffPct} onChange={(e) => setCliffPct(e.target.value)} inputMode="numeric" />
+          </label>
+          <label>
+            Cliff after (min)
+            <input value={cliffMins} onChange={(e) => setCliffMins(e.target.value)} inputMode="numeric" />
+          </label>
+          <label>
+            Tranches
+            <input value={trancheCount} onChange={(e) => setTrancheCount(e.target.value)} inputMode="numeric" />
+          </label>
+          <label>
+            Every (min)
+            <input value={trancheMins} onChange={(e) => setTrancheMins(e.target.value)} inputMode="numeric" />
+          </label>
+        </div>
+        <p className="muted">
+          Periods are in minutes so a cliff lands inside a demo. A real grant would be 12 months and 36 monthly
+          tranches — the contract does not care which.
+        </p>
+        <div className="row">
+          <button
+            disabled={!account || !grantValid || !!busy}
+            onClick={() =>
+              void run("Onboarding employee", async () => {
+                await onboard(d, account!, employee as Address, `did:hedera:testnet:${account}#kyc-${Date.now()}`);
+                return "Employee onboarded — KYC attested and allowlisted.";
+              })
+            }
+          >
+            1 · Onboard (KYC + allowlist)
+          </button>
+          <button
+            disabled={!account || !grantValid || !!busy}
+            onClick={() =>
+              void run("Issuing grant", async () => {
+                const schedule = buildSchedule(
+                  Number(total),
+                  Number(cliffPct),
+                  Number(cliffMins) * 60,
+                  Number(trancheCount),
+                  Number(trancheMins) * 60,
+                );
+                const id = await issueGrant(d, account!, employee as Address, schedule, (f, t) =>
+                  setBusy({ what: "Issuing grant", detail: `funded ${f}/${t} tranches` }),
+                );
+                return `Grant #${id} issued and fully funded.`;
+              })
+            }
+          >
+            2 · Issue grant
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Employees</h2>
+        {holders.length === 0 && <p className="muted">No grants issued yet.</p>}
+        {holders.map((h) => (
+          <div className="holder" key={h.address}>
+            <div className="holder-head">
+              <a className="link" href={`${HASHSCAN}/account/${h.address}`} target="_blank" rel="noreferrer">
+                {short(h.address)}
+              </a>
+              <span className={`pill ${h.status === 3 ? "bad" : h.status === 2 ? "good" : ""}`}>
+                {h.grantId ? `grant #${h.grantId} · ${["none", "funding", "active", "terminated"][h.status]}` : "no grant"}
+              </span>
+              <span className={`pill ${h.kycGranted ? "good" : "bad"}`}>{h.kycGranted ? "KYC" : "no KYC"}</span>
+              <span className={`pill ${h.allowlisted ? "good" : "bad"}`}>
+                {h.allowlisted ? "allowlisted" : "frozen / not listed"}
+              </span>
+            </div>
+            <div className="stats four">
+              <div className="stat">
+                <div className="value">{fmt(h.granted)}</div>
+                <div className="label">Granted</div>
+              </div>
+              <div className="stat">
+                <div className="value">{fmt(h.vested)}</div>
+                <div className="label">Vested</div>
+              </div>
+              <div className="stat">
+                <div className="value">{fmt(h.unvested)}</div>
+                <div className="label">Unvested</div>
+              </div>
+              <div className="stat">
+                <div className="value">{fmt(h.spendable)}</div>
+                <div className="label">In wallet</div>
+              </div>
+            </div>
+
+            {h.grantId !== null && (
+              <div className="row">
+                {h.status !== 3 ? (
+                  <>
+                    <button
+                      className="danger"
+                      disabled={!account || !!busy}
+                      onClick={() =>
+                        void run("Terminating grant", async () => {
+                          await terminateGrant(d, account!, h.grantId!, 1, Math.floor(Date.now() / 1000));
+                          return `Grant #${h.grantId} terminated as a good leaver. ${fmt(
+                            h.vested,
+                          )} vested retained, ${fmt(h.unvested)} unvested now forfeitable.`;
+                        })
+                      }
+                    >
+                      Good leaver
+                    </button>
+                    <button
+                      className="danger"
+                      disabled={!account || !!busy}
+                      onClick={() =>
+                        void run("Terminating grant", async () => {
+                          await terminateGrant(d, account!, h.grantId!, 2, Math.floor(Date.now() / 1000));
+                          return `Grant #${h.grantId} terminated as a bad leaver.`;
+                        })
+                      }
+                    >
+                      Bad leaver
+                    </button>
+                    <button
+                      className="ghost"
+                      disabled={!account || !!busy}
+                      onClick={() =>
+                        void run(h.allowlisted ? "Suspending" : "Reinstating", async () => {
+                          await setFrozen(d, account!, h.address, h.allowlisted);
+                          return h.allowlisted ? "Suspended — transfers blocked." : "Reinstated.";
+                        })
+                      }
+                    >
+                      {h.allowlisted ? "Suspend" : "Reinstate"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="danger"
+                    disabled={!account || !!busy || h.unvested === 0}
+                    onClick={() =>
+                      void run("Clawing back unvested options", async () => {
+                        await clawbackGrant(d, account!, h.grantId!);
+                        return `Clawed back and burned the unvested balance of grant #${h.grantId}.`;
+                      })
+                    }
+                  >
+                    {h.unvested === 0 ? "Nothing left to claw back" : `Claw back ${fmt(h.unvested)} unvested`}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {h.credentialId && (
+              <p className="muted small">
+                Credential <code>{h.credentialId}</code>
+                {h.validTo && ` · valid to ${new Date(h.validTo * 1000).toISOString().slice(0, 10)}`}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <p className="muted">
+        Every action here is signed by <strong>your</strong> wallet, not a shared server key — terminations record the
+        deciding address on-chain, so that attribution has to mean something.
+      </p>
+    </div>
+  );
+}

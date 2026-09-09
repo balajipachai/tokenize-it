@@ -20,8 +20,8 @@ and their rationale, and the phased delivery plan.
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
-| 4 | Lending | |
-| 5 | Issuer console | |
+| 4 | Lending | next |
+| 5 | Issuer console | 🟡 built; reads verified, writes need your MetaMask |
 | 6 | Automation + polish | |
 
 ## Getting started
@@ -82,6 +82,18 @@ Currently verified, both `exact_match`:
 | ESOP token (ResolverProxy) | [`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) |
 | ESOPVestingController | [`0xe630d8…3AE3`](https://hashscan.io/testnet/contract/0xe630d8fa035A99FB1e2ac51Df790059674313AE3) |
 
+## Issuer console
+
+```bash
+npm run console:dev                        # http://localhost:3001
+HR=0xYourMetaMaskAddress npm run testnet:grant-roles
+```
+
+Onboard an employee (KYC + allowlist), issue a grant with a schedule, suspend/reinstate, and run the
+good/bad leaver flow with clawback. HR signs every action with their **own** wallet rather than a
+shared server key — `terminate` records the deciding address on-chain, so that attribution has to
+mean something. Run `testnet:grant-roles` once per HR wallet.
+
 ## Employee portal
 
 ```bash
@@ -115,7 +127,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 ## Layout
 
 ```
-apps/      employee-portal — Next.js + Privy, the employee-facing app
+apps/      employee-portal (Privy, gasless) + issuer-console (MetaMask, HR signs)
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
 tests/     lifecycle + controller suites (67 tests, ~20s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing
