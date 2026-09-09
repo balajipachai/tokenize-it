@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireWallet } from "@/lib/privyServer";
-import { readPosition, relayClaim } from "@/lib/contracts";
+import { readPosition, submitClaim } from "@/lib/contracts";
 
 export const runtime = "nodejs";
 
@@ -20,9 +20,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    const hash = await relayClaim(position.grantId);
-    // Re-read after the receipt so the client gets settled state, not a stale copy.
-    return NextResponse.json({ hash, position: await readPosition(auth.wallet) });
+    // Returns once the transaction is submitted, not once it is mined, so the client
+    // can show the HashScan link while it confirms. The client polls for settlement.
+    const hash = await submitClaim(position.grantId);
+    return NextResponse.json({ hash, grantId: position.grantId });
   } catch (err) {
     console.error("Claim failed", err);
     return NextResponse.json({ error: "The claim did not go through. Try again shortly." }, { status: 502 });

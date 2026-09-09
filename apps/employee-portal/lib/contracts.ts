@@ -254,10 +254,17 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
   };
 }
 
-export async function relayClaim(grantId: number): Promise<`0x${string}`> {
+/**
+ * Submits the release and returns as soon as the transaction has a hash, WITHOUT
+ * waiting for the receipt. That is deliberate: it lets the UI show a working
+ * HashScan link while the transaction is still confirming, instead of leaving the
+ * employee staring at a spinner with nothing to look at. The client then polls
+ * the position to decide when it actually settled.
+ */
+export async function submitClaim(grantId: number): Promise<`0x${string}`> {
   const d = deployment();
   const wallet = relayer();
-  const hash = await wallet.writeContract({
+  return wallet.writeContract({
     address: d.esopVestingController!.address,
     abi: controllerAbi,
     functionName: "releaseVested",
@@ -265,6 +272,4 @@ export async function relayClaim(grantId: number): Promise<`0x${string}`> {
     chain: hederaTestnet,
     account: wallet.account,
   });
-  await publicClient.waitForTransactionReceipt({ hash });
-  return hash;
 }

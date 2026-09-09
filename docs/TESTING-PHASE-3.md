@@ -105,16 +105,45 @@ Run from `apps/employee-portal/` so `viem` resolves.
 unactivated Hedera account, having never held HBAR. If that is non-zero, the gasless claim is not
 actually being demonstrated.
 
+## 8. What you should have seen
+
+- **During the claim:** a spinner, *"Claiming…"*, and the transaction hash as a HashScan link as
+  soon as it is submitted — not after it confirms. The link is live while the transaction is still
+  being mined, so you can follow it.
+- **After:** a green banner with *View transaction*, the wallet stat increasing, and a permanent
+  link on every claimed row of the schedule.
+- **Compliance card:** KYC verified with an expiry, allowlist membership, the credential id, and the
+  attesting issuer linked to HashScan.
+
 ## What this run does *not* cover
 
 Worth knowing before treating a green run as full coverage:
 
-- **A genuinely first-time login.** The verified run reused a persisted Privy session, so the
-  login screen and wallet-creation path were exercised only by inference. Use incognito to close
-  this.
+- **The sign-out spinner** is implemented but has not been caught on camera — the state lasts
+  milliseconds and confirming it costs you the session.
+- **The `wallet_pending` path.** A brand-new account polls every 2s behind *"Setting up your
+  wallet"* instead of flashing an error. Reproducing it needs a Privy account that has never had a
+  wallet, so it has been verified by code path rather than observed.
 - **Claim under contention** — two tabs clicking Claim at once. `releaseVested` is idempotent
   on-chain, so the second should no-op rather than double-spend, but that is reasoned, not observed.
 - **Relayer failure paths** — an unfunded or rate-limited relayer surfaces as a 502 and the generic
   *"The claim did not go through"*. The error copy has not been checked against a real failure.
 - **Terminated grants in the UI.** `status === 3` renders "grant terminated" and suppresses the
   countdown, but no run has driven a leaver through the portal.
+
+## On KYC, because a judge will ask
+
+*"You just call `grantKyc` yourself — what is actually being verified?"*
+
+Three things are genuinely enforced, and the portal now shows all of them:
+
+1. **The gate is on-chain.** A transfer to an address that fails KYC or the allowlist reverts.
+   Covered by `tests/esopLifecycle.test.ts` 1.2, and by spike #1 for the liquidation path.
+2. **Issuers are registered.** `grantKyc` reverts unless the attesting issuer was added via
+   `ssiManagement.addIssuer`, so credentials cannot be minted by an arbitrary key.
+3. **Revocation is retroactive.** `KycStorageWrapper` re-checks `isIssuer` on every *read*, so
+   removing an issuer invalidates every credential it ever signed, immediately.
+
+What is stubbed is the off-chain provider that verifies the human. Swapping it in changes who holds
+`ROLE_KYC` and what `vcId` points at — **not the contract**. That is the honest answer, and it is a
+stronger one than claiming full KYC.

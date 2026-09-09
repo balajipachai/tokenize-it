@@ -92,25 +92,29 @@ export function Dashboard() {
   const [walletPending, setWalletPending] = useState(false);
   const [, forceTick] = useState(0);
 
+  const fetchPosition = useCallback(async (): Promise<Position | null> => {
+    const token = await getAccessToken();
+    const res = await fetch("/api/position", { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.json();
+    if (body.code === "wallet_pending") {
+      // First-ever login: Privy is still provisioning. Not an error -- keep waiting.
+      setWalletPending(true);
+      return null;
+    }
+    if (!res.ok) throw new Error(body.error ?? "Could not load your equity.");
+    setWalletPending(false);
+    return body as Position;
+  }, [getAccessToken]);
+
   const load = useCallback(async () => {
     try {
-      const token = await getAccessToken();
-      const res = await fetch("/api/position", { headers: { Authorization: `Bearer ${token}` } });
-      const body = await res.json();
-      if (body.code === "wallet_pending") {
-        // First-ever login: Privy is still provisioning. Not an error -- keep waiting.
-        setWalletPending(true);
-        setError(null);
-        return;
-      }
-      if (!res.ok) throw new Error(body.error ?? "Could not load your equity.");
-      setWalletPending(false);
-      setPosition(body);
+      const next = await fetchPosition();
+      if (next) setPosition(next);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your equity.");
     }
-  }, [getAccessToken]);
+  }, [fetchPosition]);
 
   useEffect(() => {
     void load();
@@ -133,9 +137,23 @@ export function Dashboard() {
       const res = await fetch("/api/claim", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "The claim did not go through.");
+
+      // The hash exists as soon as the transaction is submitted, so show it now —
+      // the employee can watch it confirm on HashScan instead of waiting blind.
       setClaimHash(body.hash ?? null);
-      setPosition(body.position);
-      setNotice("Claimed. Your vested options are now yours to hold, transfer or borrow against.");
+
+      const before = position?.claimable ?? 0;
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const next = await fetchPosition();
+        if (next && next.claimable < before) {
+          setPosition(next);
+          setNotice("Claimed. Your vested options are now yours to hold, transfer or borrow against.");
+          return;
+        }
+      }
+      // Submitted but not observed settling. Say so plainly rather than claiming success.
+      setNotice("Submitted. It is taking longer than usual to confirm — follow the transaction above.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "The claim did not go through.");
     } finally {
@@ -193,7 +211,17 @@ export function Dashboard() {
       </div>
 
       {error && <div className="banner error">{error}</div>}
-      {notice && <div className="banner ok">{notice}</div>}
+      {notice && (
+        <div className="banner ok">
+          {notice}
+          {claimHash && (
+            <>
+              {" "}
+              <TxLink hash={claimHash} label="View transaction" />
+            </>
+          )}
+        </div>
+      )}
 
       {position && !position.hasGrant && (
         <div className="card">
@@ -246,11 +274,13 @@ export function Dashboard() {
                       `Claim ${position.claimable} vested tranche${position.claimable === 1 ? "" : "s"}`
                     )}
                   </button>
-                  {claiming && <span className="muted">submitting to Hedera…</span>}
-                  {!claiming && claimHash && (
+                  {claimHash ? (
                     <span className="muted">
                       transaction <TxLink hash={claimHash} />
+                      {claiming && " · confirming…"}
                     </span>
+                  ) : (
+                    claiming && <span className="muted">submitting to Hedera…</span>
                   )}
                 </div>
                 <p className="muted" style={{ marginTop: 8 }}>
