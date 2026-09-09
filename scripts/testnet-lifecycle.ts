@@ -124,7 +124,7 @@ async function main() {
         resolver,
         resolverProxyConfiguration: { key: EQUITY_CONFIG_ID, version: Number(env("ATS_EQUITY_CONFIG_VERSION", "1")) },
         maxSupply: POOL_SIZE,
-        erc20MetadataInfo: { name: "Acme ESOP 2026-A", symbol: "ESOP", decimals: 0, isin: "US0378331005" },
+        erc20MetadataInfo: { name: "Essential Links ESOP 2026-A", symbol: "ESOP", decimals: 0, isin: "US0378331005" },
         // The production flag set from IMPLEMENTATION_PLAN.md §3.1
         isMultiPartition: true,
         isControllable: true,
@@ -193,7 +193,7 @@ async function main() {
     atsResolver: resolver,
     esopToken: {
       address: diamond.target as string,
-      name: "Acme ESOP 2026-A",
+      name: "Essential Links ESOP 2026-A",
       symbol: "ESOP",
       partition: PARTITION,
       contractIdentifier: "contracts/infrastructure/proxy/ResolverProxy.sol:ResolverProxy",

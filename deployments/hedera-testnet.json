@@ -6,7 +6,7 @@
   "atsResolver": "0xBA2D5FC2083A0b8f164c50e65d782087fBA18E0a",
   "esopToken": {
     "address": "0x17E651D659704A47932ff7Ffd6032860E468cE58",
-    "name": "Acme ESOP 2026-A",
+    "name": "Essential Links ESOP 2026-A",
     "symbol": "ESOP",
     "partition": "0x0000000000000000000000000000000000000000000000000000000000000001",
     "contractIdentifier": "contracts/infrastructure/proxy/ResolverProxy.sol:ResolverProxy",

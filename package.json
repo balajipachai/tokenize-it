@@ -18,6 +18,7 @@
     "portal:build": "npm --prefix apps/employee-portal run build",
     "console:dev": "npm --prefix apps/issuer-console run dev",
     "console:build": "npm --prefix apps/issuer-console run build",
-    "testnet:grant-roles": "bash scripts/ats-run.sh testnet-grant-roles.ts hedera-testnet"
+    "testnet:grant-roles": "bash scripts/ats-run.sh testnet-grant-roles.ts hedera-testnet",
+    "testnet:set-token-name": "bash scripts/ats-run.sh testnet-set-token-name.ts hedera-testnet"
   }
 }
