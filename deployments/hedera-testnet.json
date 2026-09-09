@@ -13,52 +13,45 @@
     "creationTxHash": null
   },
   "esopVestingController": {
-    "address": "0x7b82403588e00c46B6e8E0F3274062c07765c346",
+    "address": "0x7738f758679bbe8729A01C0313ae3052b21D683d",
     "contractIdentifier": "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
-    "creationTxHash": "0xd5b5b34672026ba8943c99c62ef0967bd2f69bbecf051cbcaa45d54a040240c8",
+    "creationTxHash": "0xe98d7bb61c1f1703342f83a9a79c5a9bfd81da4daeb6c41640c290b59e499226",
     "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
     "disputeWindowSeconds": 180,
     "demoArbiter": {
-      "address": "0xE8dFEFA22396a95D607e110281fC6CC883fa4184",
+      "address": "0x86a602f02918628C7349fA68EcdE572d7aABcF86",
       "note": "2-of-N stand-in so the appeal path can be demonstrated. NOT a Safe; replace in production."
     }
   },
   "grants": [
     {
       "grantId": 1,
-      "employee": "0x8a3DbE90c97943D8dd1E7D95F6857684a99A16e9",
-      "totalAmount": 2400,
-      "trancheCount": 13,
-      "cliffAt": 1788944528,
-      "createdAt": "2026-09-09T08:59:58.020Z"
-    },
-    {
-      "grantId": 2,
       "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
       "totalAmount": 2400,
       "trancheCount": 13,
-      "cliffAt": 1788944548,
-      "createdAt": "2026-09-09T09:00:10.719Z"
+      "cliffAt": 1788974975,
+      "createdAt": "2026-09-09T17:27:53.996Z"
     }
   ],
   "previousControllers": [
-    "0xe630d8fa035A99FB1e2ac51Df790059674313AE3"
+    "0xe630d8fa035A99FB1e2ac51Df790059674313AE3",
+    "0x7b82403588e00c46B6e8E0F3274062c07765c346"
   ],
   "lending": {
     "pool": {
-      "address": "0x7aBB4aF28Af873d0b504a2C118f76a754D1C93B4",
+      "address": "0x8162149D3Dec1C54B310416A7996772f5748dB9e",
       "contractIdentifier": "contracts/tokenize-it/lending/ESOPLendingPool.sol:ESOPLendingPool",
-      "creationTxHash": "0x3a3efee38b65a73e1e15840d1f785a2a43834536b90a89f8b23a0ab9bd504fb1",
+      "creationTxHash": "0x1a7ec0219698fd681c622137aeb55e0910d8ad6e28acf46516440911ee50ad87",
       "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
     },
     "navOracle": {
-      "address": "0x3F59c956d9850147623adb1B3FB10B5e04a1FC80",
+      "address": "0x0C101f1439B2356C2E7b1844FB039b7BB8885511",
       "contractIdentifier": "contracts/tokenize-it/lending/EsopNavOracle.sol:EsopNavOracle",
       "navUsd": "2.00",
       "basis": "409A valuation 2026-Q1 (demo)"
     },
     "stablecoin": {
-      "address": "0x6f928358707997E80990CEDc17E8956F1a2a6492",
+      "address": "0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9",
       "contractIdentifier": "contracts/tokenize-it/lending/MockUSDC.sol:MockUSDC",
       "symbol": "USDC",
       "decimals": 6,
@@ -68,7 +61,7 @@
       "address": "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5",
       "source": "Chainlink USDC/USD on Hedera testnet"
     },
-    "deployedAt": "2026-09-09T11:53:40.214Z"
+    "deployedAt": "2026-09-09T17:29:40.084Z"
   },
   "relayer": {
     "address": "0x534D3B33113cF1435d63969059F593bb12e04069",

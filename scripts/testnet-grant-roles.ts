@@ -58,6 +58,21 @@ async function main() {
     console.log("  -> grant admin granted");
   }
 
+  // The dispute relayer lets an employee contest a termination from an account that has
+  // never held gas. Without it the recourse we built is only reachable by someone who can
+  // already pay for a transaction, which is exactly the person who does not need help.
+  const relayer: string | undefined = process.env.RELAYER_ADDRESS ?? record.relayer?.address;
+  if (relayer && ethersLib.isAddress(relayer)) {
+    if (await controller.isDisputeRelayer(relayer)) {
+      console.log("  -> dispute relayer already");
+    } else {
+      await (await controller.setDisputeRelayer(relayer, true)).wait();
+      console.log(`  -> dispute relayer granted to ${relayer}`);
+    }
+  } else {
+    console.log("  -> no relayer recorded; employees could not contest gaslessly");
+  }
+
   console.log("\nDone. Connect this wallet in the issuer console at http://localhost:3001");
 }
 

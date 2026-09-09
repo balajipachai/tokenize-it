@@ -22,6 +22,21 @@ const TRANCHE_COUNT = Number(process.env.DEMO_TRANCHE_COUNT ?? 12);
 const CLIFF_DELAY = Number(process.env.DEMO_CLIFF_SECONDS ?? 120);
 const TRANCHE_SPACING = Number(process.env.DEMO_TRANCHE_SECONDS ?? 900);
 
+/**
+ * Explicit gas for ATS token writes.
+ *
+ * Hedera's estimator under-counts, and `revokeKyc` proved it the expensive way: 97,641 gas
+ * burned of a 98,458 limit -- 99.2% consumed, empty revert data -- while the identical call
+ * succeeded under `staticCall`. That is out of gas, not a rejection, and an out-of-gas revert
+ * tells you nothing about why.
+ *
+ * Over-asking is free: Hedera charges on gas USED, not the limit offered (the same call
+ * offered 120,000 and 900,000 cost an identical 0.03710687 HBAR). So be generous here rather
+ * than clever. Note that setting gasMultiplier in the Hardhat network config does NOT cover
+ * these calls -- measured, the limit was unchanged -- so it has to be passed per call.
+ */
+const GAS = { gasLimit: 900_000n };
+
 const REPO_ROOT = process.env.TOKENIZE_IT_ROOT ?? path.resolve(__dirname, "../../../../../../..");
 const DEPLOYMENTS = path.join(REPO_ROOT, "deployments", "hedera-testnet.json");
 
@@ -54,7 +69,7 @@ async function main() {
   //     verifies the human and mints the credential. The contract does not change --
   //     only who holds ROLE_KYC and what `vcId` points at.
   if (!(await token.isIssuer(operator.address))) {
-    await (await token.addIssuer(operator.address)).wait();
+    await (await token.addIssuer(operator.address, GAS)).wait();
     console.log("  -> registered KYC issuer");
   }
 
@@ -63,7 +78,7 @@ async function main() {
   // traceable attestation with a real validity period.
   const existing = await token.getKycFor(employee);
   if (Number(existing.status) === 1 && existing.vcId === "") {
-    await (await token.revokeKyc(employee)).wait();
+    await (await token.revokeKyc(employee, GAS)).wait();
     console.log("  -> revoked placeholder credential");
   }
 
@@ -74,13 +89,13 @@ async function main() {
     // A real credential reference rather than an empty string, so the portal can show
     // WHICH attestation admitted this holder and a reviewer can trace it.
     const vcId = `did:hedera:testnet:${operator.address}#kyc-${employee.slice(2, 10).toLowerCase()}-${now}`;
-    await (await token.grantKyc(employee, vcId, now, validTo, operator.address)).wait();
+    await (await token.grantKyc(employee, vcId, now, validTo, operator.address, GAS)).wait();
     console.log(`  -> KYC granted`);
     console.log(`     credential ${vcId}`);
     console.log(`     valid until ${new Date(validTo * 1000).toISOString().slice(0, 10)}`);
   }
   if (!(await token.isInControlList(employee))) {
-    await (await token.addToControlList(employee)).wait();
+    await (await token.addToControlList(employee, GAS)).wait();
     console.log("  -> allowlisted");
   }
 
