@@ -91,6 +91,8 @@ npm run portal:dev                  # http://localhost:3000
 EMPLOYEE=0x... npm run testnet:grant  # grant options to the wallet the portal shows you
 ```
 
+Step-by-step test/demo script: [docs/TESTING-PHASE-3.md](./docs/TESTING-PHASE-3.md).
+
 Sign in with an email; Privy creates an embedded wallet on first login. The portal shows granted
 vs vested vs still-vesting, a vesting timeline, and a Claim button. The employee never installs a
 wallet, never sees a seed phrase, and never holds HBAR — a backend relayer pays every network fee,
