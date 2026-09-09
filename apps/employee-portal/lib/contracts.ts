@@ -80,6 +80,8 @@ export interface PositionView {
   granted: number;
   vested: number;
   unvested: number;
+  /** Forfeited on termination. Derived, so it works against older deployments too. */
+  clawedBack: number;
   claimable: number;
   spendable: number;
   locked: number;
@@ -188,6 +190,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       granted: 0,
       vested: 0,
       unvested: 0,
+      clawedBack: 0,
       claimable: 0,
       spendable: Number(spendable),
       locked: Number(locked),
@@ -240,6 +243,9 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
     granted: Number(grant.totalAmount),
     vested: Number(vested),
     unvested: Number(unvested),
+    // Derived: vestedAmount and unvestedAmount both skip forfeited tranches, so the gap
+    // to the total IS what was forfeited. Without it the employee's figures do not add up.
+    clawedBack: Number(grant.totalAmount) - Number(vested) - Number(unvested),
     // `pendingTranches` counts tranches that have vested but not yet been released.
     claimable: Number(pending),
     spendable: Number(spendable),

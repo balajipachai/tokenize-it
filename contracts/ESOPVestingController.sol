@@ -614,6 +614,20 @@ contract ESOPVestingController {
         }
     }
 
+    /**
+     * @notice Amount forfeited and returned to the pool.
+     * @dev Without this the figures do not reconcile: `vestedAmount` and `unvestedAmount`
+     *      both skip clawed-back tranches, so after a forfeiture they no longer sum to
+     *      `totalAmount` and the difference has no name. This is that difference.
+     *      The identity `granted == vested + unvested + clawedBack` holds by construction.
+     */
+    function clawedBackAmount(uint256 grantId) external view returns (uint256 amount) {
+        Tranche[] storage list = _tranches[grantId];
+        for (uint256 i; i < list.length; ++i) {
+            if (list[i].clawedBack) amount += list[i].amount;
+        }
+    }
+
     /// @notice Timestamp of the next tranche to vest, or 0 if fully vested or terminated.
     function nextVestAt(uint256 grantId) external view returns (uint64) {
         Grant storage g = _grants[grantId];

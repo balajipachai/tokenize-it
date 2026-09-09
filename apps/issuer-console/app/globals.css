@@ -397,3 +397,16 @@ label.inline input {
   height: 30px;
   border-width: 3px;
 }
+
+.stats.five {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.stat.forfeited .value {
+  color: #b91c1c;
+}
+
+.reconcile {
+  margin: 10px 0 0;
+  font-variant-numeric: tabular-nums;
+}

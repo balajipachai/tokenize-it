@@ -317,7 +317,7 @@ export function Console() {
                 {h.allowlisted ? "allowlisted" : "frozen / not listed"}
               </span>
             </div>
-            <div className="stats four">
+            <div className="stats five">
               <div className="stat">
                 <div className="value">{fmt(h.granted)}</div>
                 <div className="label">Granted</div>
@@ -330,11 +330,25 @@ export function Console() {
                 <div className="value">{fmt(h.unvested)}</div>
                 <div className="label">Unvested</div>
               </div>
+              <div
+                className={`stat ${h.clawedBack > 0 ? "forfeited" : ""}`}
+                title="Forfeited on termination and returned to the option pool"
+              >
+                <div className="value">{fmt(h.clawedBack)}</div>
+                <div className="label">Clawed back</div>
+              </div>
               <div className="stat" title="Released and unlocked, across every grant this person holds">
                 <div className="value">{fmt(h.spendable)}</div>
                 <div className="label">Claimed &amp; free</div>
               </div>
             </div>
+
+            {h.grantId !== null && (
+              <p className="muted small reconcile">
+                {fmt(h.vested)} vested + {fmt(h.unvested)} unvested + {fmt(h.clawedBack)} clawed back ={" "}
+                {fmt(h.granted)} granted
+              </p>
+            )}
 
             {h.grantId !== null && (
               <div className="row">

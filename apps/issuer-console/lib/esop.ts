@@ -28,6 +28,8 @@ export interface Holder {
   granted: number;
   vested: number;
   unvested: number;
+  /** Forfeited and returned to the pool. Derived, so it works against older deployments too. */
+  clawedBack: number;
   /** Terminations cannot be dated before this. */
   grantDate: number | null;
 }
@@ -99,7 +101,7 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
   };
 
   if (grantIds.length === 0) {
-    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0, grantDate: null };
+    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0, clawedBack: 0, grantDate: null };
   }
 
   const grantId = grantIds[grantIds.length - 1];
@@ -126,6 +128,10 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
     granted: Number(grant.totalAmount),
     vested: Number(vested),
     unvested: Number(unvested),
+    // Derived rather than read: vestedAmount and unvestedAmount both skip forfeited
+    // tranches, so whatever is missing from the total IS the forfeited amount. Computing
+    // it keeps the console working against controllers deployed before the view existed.
+    clawedBack: Number(grant.totalAmount) - Number(vested) - Number(unvested),
     grantDate: Number(grant.grantDate),
   };
 }

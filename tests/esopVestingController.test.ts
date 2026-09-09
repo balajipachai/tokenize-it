@@ -768,6 +768,35 @@ describe("PHASE 2: ESOPVestingController", () => {
       await expect(c.connect(hr).setArbiter(await twoOfN.getAddress(), false)).to.not.be.reverted;
     });
 
+    it("7.14 granted == vested + unvested + clawedBack, before and after a forfeiture", async () => {
+      const c = await withWindow();
+      const { id, from } = await grantOn(c, priya.address);
+
+      const closes = async () => {
+        const [g, v, u, cb] = await Promise.all([
+          c.getGrant(id),
+          c.vestedAmount(id),
+          c.unvestedAmount(id),
+          c.clawedBackAmount(id),
+        ]);
+        expect(v + u + cb).to.equal(g.totalAmount);
+        return { vested: v, unvested: u, clawedBack: cb };
+      };
+
+      await closes(); // nothing vested yet
+      await time.increaseTo(from + YEAR + 3 * MONTH + 1);
+      const mid = await closes();
+      expect(mid.clawedBack).to.equal(0);
+
+      await c.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
+      await time.increase(WINDOW + 1);
+      await c.connect(hr).clawback(id, 40);
+
+      const after = await closes();
+      expect(after.clawedBack).to.equal(mid.unvested);
+      expect(after.unvested).to.equal(0);
+    });
+
     it("7.12 forfeited options return to the pool rather than being burned", async () => {
       const c = await withWindow();
       const addr = await c.getAddress();

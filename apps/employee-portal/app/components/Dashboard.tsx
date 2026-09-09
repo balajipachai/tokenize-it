@@ -31,6 +31,7 @@ interface Position {
   granted: number;
   vested: number;
   unvested: number;
+  clawedBack: number;
   claimable: number;
   spendable: number;
   locked: number;
@@ -297,6 +298,12 @@ export function Dashboard() {
                 <div className="value">{fmt(position.unvested)}</div>
                 <div className="label">Still vesting</div>
               </div>
+              {position.clawedBack > 0 && (
+                <div className="stat" title="Forfeited when your grant ended, and returned to the company pool">
+                  <div className="value">{fmt(position.clawedBack)}</div>
+                  <div className="label">Forfeited</div>
+                </div>
+              )}
               <div
                 className="stat"
                 title="Claimed and unlocked — free to hold, transfer or borrow against"
