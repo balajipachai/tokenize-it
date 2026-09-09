@@ -15,7 +15,47 @@ interface IMultisig {
     function getThreshold() external view returns (uint256);
 }
 
+/// @notice Hold types mirrored from ATS, so the pool can address holds without importing
+///         the whole diamond interface.
+interface IHoldTypes {
+    struct HoldIdentifier {
+        bytes32 partition;
+        address tokenHolder;
+        uint256 holdId;
+    }
+}
+
 interface IAtsEsop {
+    /// @dev Returns the hold's CURRENT amount — ATS scales it by the adjust-balance factor,
+    ///      so this is the only trustworthy source after a stock split.
+    function getHoldForByPartition(
+        IHoldTypes.HoldIdentifier calldata holdIdentifier
+    )
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 expirationTimestamp,
+            address escrow,
+            address destination,
+            bytes memory data,
+            bytes memory operatorData,
+            uint8 thirdPartyType
+        );
+
+    /// @dev Only the escrow may execute a hold, and only to a KYC'd, allowlisted address.
+    function executeHoldByPartition(
+        IHoldTypes.HoldIdentifier calldata holdIdentifier,
+        address to,
+        uint256 amount
+    ) external returns (bool success, bytes32 partition);
+
+    /// @dev Returns held tokens to the holder. Unlike execute, this runs no compliance check.
+    function releaseHoldByPartition(
+        IHoldTypes.HoldIdentifier calldata holdIdentifier,
+        uint256 amount
+    ) external returns (bool success);
+
     /// @dev Caller must hold the tokens and ROLE_LOCKER. Moves `amount` from the caller to
     ///      `to` and locks it until `expirationTimestamp`.
     function transferAndLockByPartition(

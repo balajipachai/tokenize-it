@@ -1026,7 +1026,71 @@ date, because the row formatter was date-only and a compressed demo schedule put
 apart. Fixed by choosing the format from the schedule's actual span: under two days it shows the
 time, otherwise the date. Unit tests and `tsc` were both green throughout.
 
-### Phase 4 — Lending
+### Phase 4 — Lending — 🟡 **contracts done, 24/24 passing; not yet deployed or wired to a UI**
+
+`contracts/lending/`: `ESOPLendingPool`, `EsopNavOracle`, `MockUSDC`. Designed against the
+`solidity-dev` skill **before** writing, per the standing rule, and the state machine below was
+written out first rather than discovered.
+
+| From | Action | Guard | To |
+|---|---|---|---|
+| — | `borrow` | pool is escrow **and** destination; expiry bounded and within [minTerm, maxTerm]; LTV ≤ 25%; both feeds fresh; liquidity available; hold not already pledged | Active |
+| Active | `repay` / `repayAll` | partial reduces debt; full releases the hold | Active / **Repaid** |
+| Active | `liquidate` | LTV ≥ 40% **or** past maturity | **Liquidated** — takes only what covers the debt, releases the surplus |
+
+**Collateral never leaves the borrower's wallet.** It is a hold, not a transfer: the shares stay
+theirs, marked as held, and only liquidation moves anything — through the token's full compliance
+stack. Test 2.1 asserts the pool's balance is zero while a loan is outstanding, which is the whole
+pitch in one assertion.
+
+**Three things testing found that reasoning had not.**
+
+1. **`executeHoldByPartition` reverts once a hold expires.** A loan maturing *at* its collateral's
+   expiry could therefore never be seized — the borrower would simply reclaim and leave the pool
+   unsecured. Maturity is now set to `expiry − liquidationGrace` (3 days), so there is always a
+   window in which the loan is seizable and the hold is still executable. This was a genuine
+   design bug, not a test artefact.
+2. **`releaseHoldByPartition` reverts after expiry too**, which would have trapped a borrower
+   trying to repay a lapsed loan — repayment would revert and the debt could never be cleared.
+   Repayment now always succeeds; if the hold has lapsed the collateral is simply the borrower's
+   to reclaim directly.
+3. **A never-expiring hold cannot be created at all.** Spike #1's finding C2 — held tokens are
+   immune to clawback — implied a permanent escape hatch via a zero-expiry hold. ATS refuses to
+   create one, so the risk is closed a layer below us. The pool keeps its own guard anyway, since
+   that is a property of ATS today rather than something it owes us.
+
+**Valuation.** `EsopNavOracle` implements Chainlink's `AggregatorV3` shape, so a listed issuer
+swaps in a real feed at the same interface and nothing downstream changes — that is the listed vs
+unlisted answer from §5.3, delivered as one setter rather than a separate router contract. The pool
+reads **two** feeds: NAV for the collateral and a peg feed for the stablecoin, because if USDC is
+worth $0.90 then a borrower repaying "1,000 USDC" is repaying $900 of value, and pricing collateral
+as though it were $1,000 quietly under-collateralises the book. Staleness bounds are **per feed**
+— an appraisal is annual by nature, a market feed that has not moved in a day is broken — which is
+the §5.3.2 lesson applied rather than restated.
+
+The NAV oracle is the trust boundary, handled the way `terminate` was: the price is a parameter
+because no on-chain fact can derive a private company's share price, every publication is
+attributed to its writer with a free-text `basis` (a 409A id, a funding round), the agent roster is
+revocable, and a `maxDeviationBps` circuit breaker stops one fat-fingered price repricing every
+loan at once.
+
+**A property worth naming: a stale price pauses liquidation, deliberately.** Seizing somebody's
+equity at a price nobody can vouch for is worse than waiting. The operational answer is to keep the
+feed alive — which makes oracle liveness a solvency concern here, not just a UX one. Test 4.6 pins
+it.
+
+**Slither:** 17 → 16 on the pool, 1 on the oracle. Fixed rather than suppressed: a
+`divide-before-multiply` in `collateralValue` that lost precision on large positions, and two
+unchecked ATS return values. `repay` now **caps** at the amount owed instead of reverting on an
+overshoot — interest accrues per second, so anyone aiming at the exact figure is guessing, and
+punishing an overshoot would make undershooting (which silently leaves the loan open) the safer
+mistake. Everything remaining carries an inline suppression with a reason.
+
+**Still to do:** deploy to testnet, wire borrow/repay into the employee portal behind the
+`protectedCreateHoldByPartition` signature path from spike #2, and point the peg feed at the real
+Chainlink USDC/USD feed verified in §5.3.2 rather than a stand-in.
+
+### Phase 4 (original plan) — Lending
 `EsopNavOracle`, `EsopPriceRouter`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate,
 portal borrow UI. **Onboard the pool address as a KYC'd + allowlisted holder as part of deployment**
 (spike #1) and enforce bounded hold expiry (finding C2).
