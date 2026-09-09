@@ -93,7 +93,7 @@ ATS call — not a token with a name on it.
 | 7 | **Borrow against vested equity** | `createHoldByPartition` with `escrow = ESOPLendingPool` → pool disburses stablecoin (see §6) |
 | 8 | Repay | `releaseHoldByPartition` returns collateral to free balance |
 | 9 | Default / LTV breach | `executeHoldByPartition` moves collateral to the pool — **the only address that can do this is the escrow**. Requires the pool to be KYC'd + allowlisted (§5.2 spike #1) |
-| 10 | Employee resigns pre-cliff (bad leaver) | `forceReleaseByPartition` on every unvested lock, then `controllerRedeemByPartition` to burn |
+| 10 | Employee resigns pre-cliff (bad leaver) | `forceReleaseByPartition` on every unvested lock, then `controllerTransferByPartition` back to the pool — forfeited options are re-grantable, so nothing is burned |
 | 11 | Employee resigns post-cliff (good leaver) | Unvested clawed back as in #10. What happens to the **vested** portion depends on what the token represents — see §3.2, which is a genuine modelling decision, not a detail |
 | 12 | Disciplinary suspension | `setAddressFrozen(employee, true)` — reversible, no burn. **Read the state back with `isInControlList`, not `isFrozen`** (Phase 1 finding 3) |
 | 13 | ~~Partial freeze (disputed tranche)~~ | **Not available.** `freezePartialTokens` is `onlyWithoutMultiPartition` — see Phase 1 finding 2. Multi-partition tokens get all-or-nothing freeze only |
@@ -806,7 +806,7 @@ factory. First ESOP token: **`0x17E651D659704A47932ff7Ffd6032860E468cE58`**.
 | Q2 | Real Hedera gas for `transferAndLockByPartition`? | ✅ **431,025 avg / 534,795 max** |
 | Q3 | Can a never-funded hollow address hold ESOPs? | ✅ Held 2,400 options having never been activated |
 | Q4 | Does EIP-712 validate on chainId 296 with the relayer paying? | ✅ Relayed transfer succeeded (297,083 gas); employee's native balance stayed **0** throughout |
-| Q5 | Does clawback work on Hedera? | ✅ 1,200 unvested burned, 1,150 vested retained |
+| Q5 | Does clawback work on Hedera? | ✅ 1,200 unvested clawed back, 1,150 vested retained (that run predated the switch from burning to pool recovery) |
 
 **The most useful result is Q2, and it is not the number itself.** Hedera charged 431,025 gas
 average against 425,406 measured locally — **within 1.3%**. Local Hardhat gas is a trustworthy
@@ -859,8 +859,8 @@ is idempotent — it tolerates being called twice, and tolerates a lock someone 
 the token, because vesting genuinely does not depend on this contract.
 
 `terminate` and `clawback` are deliberately separate. `terminate` records the leaving date and moves
-no tokens; `clawback(grantId, maxCount)` then force-releases and burns unvested tranches in bounded
-batches. Force-release and burn happen **in the same call** on purpose: force-release drops tokens
+no tokens; `clawback(grantId, maxCount)` then force-releases unvested tranches and returns them to
+the pool in bounded batches. Force-release and recovery happen **in the same call** on purpose: force-release drops tokens
 into the employee's free balance, and leaving them there across transactions would open a window
 where they are neither vested nor recoverable.
 

@@ -231,8 +231,8 @@ contract ESOPVestingController {
     }
 
     /// @notice Step one of a two-step admin handover. Nothing changes until `acceptAdmin`.
-    /// @dev Two-step on purpose: this address can burn employee equity via `clawback`, so a
-    ///      one-step transfer to a typo'd or unreachable address would be unrecoverable.
+    /// @dev Two-step on purpose: this address can forfeit employee equity via `clawback`,
+    ///      so a one-step transfer to a typo'd or unreachable address would be unrecoverable.
     function transferAdmin(address newAdmin) external onlyAdmin {
         if (newAdmin == address(0)) revert ZeroAddress();
         pendingAdmin = newAdmin;
@@ -500,15 +500,15 @@ contract ESOPVestingController {
     }
 
     /**
-     * @notice Force-releases and burns unvested tranches after termination.
-     * @dev Force-release and burn happen in the same call on purpose: force-release moves tokens
+     * @notice Force-releases unvested tranches after termination and returns them to the pool.
+     * @dev Force-release and recovery happen in the same call on purpose: force-release moves tokens
      *      into the employee's free balance, and leaving them there across transactions would be
      *      a window in which they are neither vested nor recoverable.
      */
     function clawback(
         uint256 grantId,
         uint32 maxCount
-    ) external onlyGrantAdmin nonReentrant returns (uint256 burned) {
+    ) external onlyGrantAdmin nonReentrant returns (uint256 forfeited) {
         Grant storage g = _requireGrant(grantId);
         if (g.status != GrantStatus.Terminated) revert GrantNotTerminated(grantId);
 
@@ -535,10 +535,10 @@ contract ESOPVestingController {
             if (t.released || t.clawedBack || t.lockId == 0) continue;
             if (t.vestsAt <= cutoff) continue; // vested before leaving -- the employee keeps it
 
-            // Burn what the token says is locked NOW, not the amount recorded at grant time.
-            // ATS scales locks by the adjust-balance factor, so after a stock split the two
-            // diverge -- and burning the stale, smaller number would leave the employee holding
-            // unvested equity they had already forfeited.
+            // Recover what the token says is locked NOW, not the amount recorded at grant
+            // time. ATS scales locks by the adjust-balance factor, so after a stock split the
+            // two diverge -- and moving the stale, smaller number would leave the employee
+            // holding unvested equity they had already forfeited.
             (uint256 lockedAmount, ) = token.getLockForByPartition(partition, employee, t.lockId);
             if (lockedAmount == 0) {
                 list[i].clawedBack = true;
@@ -547,19 +547,19 @@ contract ESOPVestingController {
 
             list[i].clawedBack = true; // effect before interaction
             if (!token.forceReleaseByPartition(partition, t.lockId, employee)) revert TokenCallFailed();
-            burned += lockedAmount;
+            forfeited += lockedAmount;
             ++count;
             unchecked {
                 ++done;
             }
         }
 
-        if (burned > 0) {
-            // Returned to this contract's pool rather than burned. Forfeited options are
-            // meant to become grantable again, and a transfer does that directly — burning
-            // would drop total supply and require a fresh mint (and ISSUER_ROLE) to reuse them.
-            token.controllerTransferByPartition(partition, employee, address(this), burned, "", "");
-            emit ClawedBack(grantId, count, burned);
+        if (forfeited > 0) {
+            // Returned to this contract's pool rather than burned. Forfeited options are meant
+            // to become grantable again, and a transfer does that directly -- burning would
+            // drop total supply and need a fresh mint (and ISSUER_ROLE) to reuse them.
+            token.controllerTransferByPartition(partition, employee, address(this), forfeited, "", "");
+            emit ClawedBack(grantId, count, forfeited);
         }
     }
 

@@ -426,7 +426,7 @@ describe("PHASE 2: ESOPVestingController", () => {
       ).to.be.revertedWithCustomError(controller, "GrantAlreadyTerminated");
     });
 
-    it("4.9 clawback is idempotent once everything is burned", async () => {
+    it("4.9 clawback is idempotent once everything is forfeited", async () => {
       const id = await newGrant(raj.address);
       await fundAll(id);
       await controller.connect(hr).terminate(id, LeaverType.Bad, await time.latest());
@@ -525,8 +525,8 @@ describe("PHASE 2: ESOPVestingController", () => {
         .withArgs(id, LeaverType.Bad, at, hr.address);
     });
 
-    it("6.4 clawback burns the SPLIT-ADJUSTED amount, not the amount recorded at grant time", async () => {
-      // ATS scales locks by the adjust-balance factor. Burning the stale, smaller number
+    it("6.4 clawback forfeits the SPLIT-ADJUSTED amount, not the amount recorded at grant time", async () => {
+      // ATS scales locks by the adjust-balance factor. Moving the stale, smaller number
       // would leave a bad leaver holding unvested equity they had already forfeited.
       const id = await newGrant(raj.address);
       await fundAll(id);

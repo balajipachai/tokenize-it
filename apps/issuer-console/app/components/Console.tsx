@@ -409,7 +409,7 @@ export function Console() {
                     onClick={() =>
                       void run("Clawing back unvested options", async () => {
                         await clawbackGrant(d, account!, h.grantId!);
-                        return `Clawed back and burned the unvested balance of grant #${h.grantId}.`;
+                        return `Clawed back ${fmt(h.unvested)} unvested options from grant #${h.grantId} — returned to the option pool and available to re-grant.`;
                       })
                     }
                   >
