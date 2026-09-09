@@ -43,5 +43,31 @@
   ],
   "previousControllers": [
     "0xe630d8fa035A99FB1e2ac51Df790059674313AE3"
-  ]
+  ],
+  "lending": {
+    "pool": {
+      "address": "0x0f286F61d1bC1196098fFF3C302EC118F525cbF6",
+      "contractIdentifier": "contracts/tokenize-it/lending/ESOPLendingPool.sol:ESOPLendingPool",
+      "creationTxHash": "0x1e47965347748861203812956b3ab521e7ac150f868569d01b9f11d96c3170ed",
+      "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
+    },
+    "navOracle": {
+      "address": "0x5E3fa4B87Ab7A7359A21196d59E4b1943CB29c41",
+      "contractIdentifier": "contracts/tokenize-it/lending/EsopNavOracle.sol:EsopNavOracle",
+      "navUsd": "2.00",
+      "basis": "409A valuation 2026-Q1 (demo)"
+    },
+    "stablecoin": {
+      "address": "0x80f3F992d1771BA7562c1749dc09695fa285876a",
+      "contractIdentifier": "contracts/tokenize-it/lending/MockUSDC.sol:MockUSDC",
+      "symbol": "USDC",
+      "decimals": 6,
+      "note": "Testnet stand-in. The interesting risk is in the collateral leg, not the cash leg."
+    },
+    "pegFeed": {
+      "address": "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5",
+      "source": "Chainlink USDC/USD on Hedera testnet"
+    },
+    "deployedAt": "2026-09-09T10:56:32.754Z"
+  }
 }

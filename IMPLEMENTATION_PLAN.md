@@ -1086,9 +1086,30 @@ overshoot — interest accrues per second, so anyone aiming at the exact figure 
 punishing an overshoot would make undershooting (which silently leaves the loan open) the safer
 mistake. Everything remaining carries an inline suppression with a reason.
 
-**Still to do:** deploy to testnet, wire borrow/repay into the employee portal behind the
-`protectedCreateHoldByPartition` signature path from spike #2, and point the peg feed at the real
-Chainlink USDC/USD feed verified in §5.3.2 rather than a stand-in.
+#### Live on testnet, borrow and repay verified
+
+| | |
+|---|---|
+| `ESOPLendingPool` | [`0x0f286F…cbF6`](https://hashscan.io/testnet/contract/0x0f286F61d1bC1196098fFF3C302EC118F525cbF6) |
+| `EsopNavOracle` | [`0x5E3fa4…9c41`](https://hashscan.io/testnet/contract/0x5E3fa4B87Ab7A7359A21196d59E4b1943CB29c41) |
+| `MockUSDC` | [`0x80f3F9…876a`](https://hashscan.io/testnet/contract/0x80f3F992d1771BA7562c1749dc09695fa285876a) |
+
+All three Sourcify `exact_match`. The peg feed points at the **real Chainlink USDC/USD feed**
+(`0xb632a7…B6B5`), not a stand-in.
+
+`npm run testnet:lending-demo` runs a full loan against live testnet. Pledged 5,000 shares,
+borrowed 1,250.10 USDC at 12.49% LTV, repaid in full, collateral returned. Two details worth
+noticing in that output:
+
+- **1,000 shares priced at 2000.16 USDC, not 2000.00.** The live Chainlink feed reports USDC at
+  $0.99992, so $2,000 of value costs slightly more than 2,000 coins. That is the depeg adjustment
+  doing real work against a real feed, not a rounding artefact.
+- **The pool's ESOP balance stayed at zero throughout.** The borrower's shares never moved — 5,000
+  sat in their own wallet marked as held, then came back. That single number is the pitch.
+
+**Still to do:** wire borrow/repay into the employee portal behind the
+`protectedCreateHoldByPartition` signature path from spike #2, so an employee can do this without
+gas. The contracts and the demo script prove the mechanic; the UI is what makes it a product.
 
 ### Phase 4 (original plan) — Lending
 `EsopNavOracle`, `EsopPriceRouter`, `ESOPLendingPool`, Chainlink feeds, borrow/repay/liquidate,

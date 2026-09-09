@@ -20,7 +20,7 @@ and their rationale, and the phased delivery plan.
 | 1 | Token + lifecycle skeleton | ✅ 18/18 local + full lifecycle live on Hedera testnet |
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
-| 4 | Lending | next |
+| 4 | Lending | ✅ live on testnet, borrow/repay verified |
 | 5 | Issuer console | ✅ live, with dispute window + arbitration |
 | 6 | Automation + polish | |
 
@@ -81,6 +81,9 @@ Currently verified, both `exact_match`:
 |---|---|
 | ESOP token (ResolverProxy) | [`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) |
 | ESOPVestingController | [`0x7b8240…c346`](https://hashscan.io/testnet/contract/0x7b82403588e00c46B6e8E0F3274062c07765c346) |
+| ESOPLendingPool | [`0x0f286F…cbF6`](https://hashscan.io/testnet/contract/0x0f286F61d1bC1196098fFF3C302EC118F525cbF6) |
+| EsopNavOracle | [`0x5E3fa4…9c41`](https://hashscan.io/testnet/contract/0x5E3fa4B87Ab7A7359A21196d59E4b1943CB29c41) |
+| MockUSDC (testnet) | [`0x80f3F9…876a`](https://hashscan.io/testnet/contract/0x80f3F992d1771BA7562c1749dc09695fa285876a) |
 
 ## Issuer console
 
@@ -129,6 +132,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 ```
 apps/      employee-portal (Privy, gasless) + issuer-console (MetaMask, HR signs)
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
+           lending/ — pool, NAV oracle, testnet stablecoin
 tests/     lifecycle + controller suites (67 tests, ~20s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing
 scripts/   setup + test harness
