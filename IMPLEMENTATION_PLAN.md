@@ -1079,6 +1079,16 @@ no headroom being wasted. Do **not** "fix" anything with a generous hardcoded ga
 charges most of the offered limit even when unused, so an over-generous constant is a real cost
 rather than free safety.
 
+> **Do not trust Hedera's `eth_estimateGas` for loops.** A claim reverted on-chain
+> ([`0xfc8038…d73c`](https://hashscan.io/testnet/transaction/0xfc803847978fb637560975f4db270a050fa83d48308d1791cd6756aba9a1d73c))
+> having burned 523,181 of a 523,257 limit with an empty revert reason — the signature of
+> running out of gas, not of a failed require. The estimator had returned ~523k for a
+> `releaseVested` that our own measurement puts at ~1.05M for 12 tranches: it under-counts
+> loops that call into the ATS diamond, by roughly half. Both apps now size the limit from
+> the work itself (~140k per tranche against ~88k measured) rather than from the estimate.
+> Sizing beats a blanket multiplier here because Hedera charges most of the offered limit
+> even when unused, so over-asking is a real cost rather than free insurance.
+>
 > **Two clock traps in `terminate`, both found by simulating rather than guessing.**
 > The contract rejects an effective date after `block.timestamp` (to stop anyone
 > forward-dating a termination and manufacturing extra vesting) and before `grantDate`.

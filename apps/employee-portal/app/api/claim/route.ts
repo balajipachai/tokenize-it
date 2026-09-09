@@ -22,7 +22,8 @@ export async function POST(req: Request) {
   try {
     // Returns once the transaction is submitted, not once it is mined, so the client
     // can show the HashScan link while it confirms. The client polls for settlement.
-    const hash = await submitClaim(position.grantId);
+    // Size the gas from the actual number of tranches about to be released.
+    const hash = await submitClaim(position.grantId, position.claimable);
     return NextResponse.json({ hash, grantId: position.grantId });
   } catch (err) {
     console.error("Claim failed", err);

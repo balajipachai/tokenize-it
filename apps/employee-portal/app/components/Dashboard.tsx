@@ -141,20 +141,31 @@ export function Dashboard() {
 
       // The hash exists as soon as the transaction is submitted, so show it now —
       // the employee can watch it confirm on HashScan instead of waiting blind.
-      setClaimHash(body.hash ?? null);
+      const hash: string | null = body.hash ?? null;
+      setClaimHash(hash);
+      if (!hash) throw new Error("The claim did not go through.");
 
-      const before = position?.claimable ?? 0;
-      for (let i = 0; i < 20; i++) {
+      // Ask the receipt how it ended rather than inferring from balances. A reverted
+      // transaction never changes a balance, so the old approach could only ever time
+      // out — the employee sat watching a spinner for 30 seconds to be told nothing.
+      let settled: "pending" | "success" | "reverted" = "pending";
+      for (let i = 0; i < 40 && settled === "pending"; i++) {
         await new Promise((r) => setTimeout(r, 1500));
-        const next = await fetchPosition();
-        if (next && next.claimable < before) {
-          setPosition(next);
-          setNotice("Claimed. Your vested options are now yours to hold, transfer or borrow against.");
-          return;
-        }
+        const res = await fetch(`/api/tx/${hash}`, { headers: { Authorization: `Bearer ${await getAccessToken()}` } });
+        if (res.ok) settled = (await res.json()).status;
       }
-      // Submitted but not observed settling. Say so plainly rather than claiming success.
-      setNotice("Submitted. It is taking longer than usual to confirm — follow the transaction above.");
+
+      if (settled === "reverted") {
+        throw new Error("The claim was rejected on-chain. Nothing was taken from your grant — see the transaction.");
+      }
+      if (settled === "pending") {
+        setNotice("Submitted. It is taking longer than usual to confirm — follow the transaction above.");
+        return;
+      }
+
+      const next = await fetchPosition();
+      if (next) setPosition(next);
+      setNotice("Claimed. Your vested options are now yours to hold, transfer or borrow against.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "The claim did not go through.");
     } finally {
@@ -230,7 +241,17 @@ export function Dashboard() {
         </div>
       )}
 
-      {error && <div className="banner error">{error}</div>}
+      {error && (
+        <div className="banner error">
+          {error}
+          {claimHash && (
+            <>
+              {" "}
+              <TxLink hash={claimHash} label="View transaction" />
+            </>
+          )}
+        </div>
+      )}
       {notice && (
         <div className="banner ok">
           {notice}

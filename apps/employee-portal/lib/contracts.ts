@@ -259,21 +259,51 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
 }
 
 /**
+ * Gas for a release, sized from the work rather than from eth_estimateGas.
+ *
+ * Hedera's estimator under-counts loops that call into the ATS diamond — it returned
+ * 523k for a release that needs ~1.05M, and the transaction died at 99.99% of its
+ * limit with an empty revert reason. Our own measurement is the better number:
+ * releaseVested(12) costs 1,049,811 gas, so ~88k per tranche. 140k carries real
+ * headroom without being wasteful, which matters because Hedera charges most of the
+ * offered limit even when unused.
+ */
+function releaseGas(tranches: number): bigint {
+  const limit = 250_000n + 140_000n * BigInt(Math.max(tranches, 1));
+  return limit > 14_000_000n ? 14_000_000n : limit;
+}
+
+/**
  * Submits the release and returns as soon as the transaction has a hash, WITHOUT
  * waiting for the receipt. That is deliberate: it lets the UI show a working
  * HashScan link while the transaction is still confirming, instead of leaving the
- * employee staring at a spinner with nothing to look at. The client then polls
- * the position to decide when it actually settled.
+ * employee staring at a spinner with nothing to look at. The caller polls
+ * `txStatus` to find out how it ended.
  */
-export async function submitClaim(grantId: number): Promise<`0x${string}`> {
+export async function submitClaim(grantId: number, tranches: number): Promise<`0x${string}`> {
   const d = deployment();
   const wallet = relayer();
+  // Price from the network too: Hedera rejects raw transactions offered below its
+  // minimum, which surfaces as an opaque HTTP error rather than a revert.
+  const gasPrice = await publicClient.getGasPrice();
   return wallet.writeContract({
     address: d.esopVestingController!.address,
     abi: controllerAbi,
     functionName: "releaseVested",
-    args: [BigInt(grantId), 20],
+    args: [BigInt(grantId), Math.max(tranches, 1)],
     chain: hederaTestnet,
     account: wallet.account,
+    gas: releaseGas(tranches),
+    gasPrice: (gasPrice * 120n) / 100n,
   });
+}
+
+/** Receipt-backed outcome, so a revert is reported rather than inferred from balances. */
+export async function txStatus(hash: `0x${string}`): Promise<"pending" | "success" | "reverted"> {
+  try {
+    const receipt = await publicClient.getTransactionReceipt({ hash });
+    return receipt.status === "success" ? "success" : "reverted";
+  } catch {
+    return "pending";
+  }
 }
