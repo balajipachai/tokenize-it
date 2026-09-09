@@ -925,6 +925,47 @@ are months apart, so validator-scale drift cannot move a tranche across its boun
 `uninitialized-state` on a mapping, and `unused-return` on a call that returns a partition key
 rather than a status. Each carries an inline `slither-disable-next-line` with its reason.
 
+#### Gas: storage pointers vs memory copies — measured, not assumed
+
+The skill's gas reference says *"read a storage struct into memory once, mutate the memory copy,
+write it back once."* Applied literally to `Grant` and `Tranche` that is **measurably wrong**, and
+`contracts/test/GasProbe.sol` + `tests/gasProbe.test.ts` exist so the claim can be re-checked rather
+than argued.
+
+| Pattern | Storage pointer | Memory copy + write-back | Verdict |
+|---|---:|---:|---|
+| `terminate()` — 3 writes into one packed slot | 26,937 | 35,344 | memory **+31%** |
+| Read 2 fields from a 4-slot struct | 28,778 | 32,999 | memory **+15%** |
+| Release loop, 13 tranches | 121,312 | 131,060 | memory **+8%** |
+
+The reason is that **`storage` pointers are lazy and `memory` copies are eager.** A storage pointer
+touches only the slots you actually read or write; `Grant memory g = _grants[id]` loads all four
+slots and `_grants[id] = g` writes all four back, even when only one changed. And the premise that
+"each `g.member =` is a costly write" does not hold either: after the first SSTORE, further writes
+to the *same* slot in the same transaction cost 100 gas, and `Grant`'s `status`, `terminatedAt` and
+`leaver` are all in slot 3 by construction.
+
+**The instinct still pointed at something real, just one level down.** Inside the loops, `g.employee`
+and `g.partition` were re-read every iteration, and each `Tranche` field access was a separate
+SLOAD of the *same* packed slot. Hoisting the invariants onto the stack and reading each tranche
+once with `Tranche memory t = list[i]` — while keeping the single mutation as a targeted storage
+write — is the correct form of the optimisation:
+
+| Hot path | Before | After | Saved |
+|---|---:|---:|---:|
+| `releaseVested(12)` | 1,055,467 | 1,049,506 | −5,961 (0.56%) |
+| `clawback(12)` | 925,192 | 920,160 | −5,032 (0.54%) |
+
+Applied, because it costs nothing. Kept in perspective, because it is **half a percent** — these
+functions are dominated by the external calls into the ATS diamond, at roughly 80k each. Anyone
+optimising this contract further should attack the number of diamond round-trips, not the struct
+access.
+
+> Methodology note, because it nearly produced the wrong answer: the first draft of the probe wrote
+> a `sink` variable that started at zero, so the first measurement in each test paid ~20k for a
+> zero-to-non-zero SSTORE and every later one ~2.9k. That artefact alone was larger than the effect
+> being measured and reversed two of the three verdicts. The probe now warms `sink` first.
+
 **Two deliberate deviations from the skill's defaults**, both forced by the ATS host project:
 Hardhat instead of Foundry (our suites need ATS's fixtures and path aliases, which only resolve
 inside its own project), and hand-rolled access control instead of OpenZeppelin (ATS ships its own

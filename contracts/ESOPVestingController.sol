@@ -269,33 +269,43 @@ contract ESOPVestingController {
         Grant storage g = _requireGrant(grantId);
         uint64 cutoff = _vestingCutoff(g);
 
+        // Hoisted onto the stack: re-reading these from storage inside the loop costs a
+        // warm SLOAD every iteration for values that cannot change during it.
+        address employee = g.employee;
+        bytes32 partition = g.partition;
         Tranche[] storage list = _tranches[grantId];
+        uint256 len = list.length;
+
         uint32 done;
         // slither-disable-next-line calls-loop,timestamp
         // Bounded by `maxCount`. Vest dates are months apart, so the seconds of timestamp
         // drift a validator could induce cannot move a tranche across its boundary.
-        for (uint256 i; i < list.length && done < maxCount; ++i) {
-            Tranche storage t = list[i];
+        for (uint256 i; i < len && done < maxCount; ++i) {
+            // A Tranche is one packed slot, so this reads all five fields in a single
+            // SLOAD instead of one per field. The mutation below still writes storage
+            // directly -- copying the whole struct back would rewrite the fields we did
+            // not touch.
+            Tranche memory t = list[i];
             if (t.released || t.clawedBack || t.lockId == 0) continue;
             if (t.vestsAt > cutoff) continue;
 
             // Someone may have released this lock directly on the token; skip rather than revert.
-            (uint256 lockedAmount, ) = token.getLockForByPartition(g.partition, g.employee, t.lockId);
+            (uint256 lockedAmount, ) = token.getLockForByPartition(partition, employee, t.lockId);
             if (lockedAmount == 0) {
-                t.released = true;
+                list[i].released = true;
                 continue;
             }
 
-            t.released = true; // effect before interaction
+            list[i].released = true; // effect before interaction
             // ATS returns true or reverts today, but it is an upgradeable diamond -- checking
             // costs nothing and stops a future silent `false` from marking a tranche released
             // without the tokens ever moving.
-            if (!token.releaseByPartition(g.partition, t.lockId, g.employee)) revert TokenCallFailed();
+            if (!token.releaseByPartition(partition, t.lockId, employee)) revert TokenCallFailed();
             releasedAmount += lockedAmount;
             unchecked {
                 ++done;
             }
-            emit TrancheVested(grantId, g.employee, i, lockedAmount);
+            emit TrancheVested(grantId, employee, i, lockedAmount);
         }
     }
 
@@ -344,28 +354,33 @@ contract ESOPVestingController {
         Grant storage g = _requireGrant(grantId);
         if (g.status != GrantStatus.Terminated) revert GrantNotTerminated(grantId);
 
+        address employee = g.employee;
+        bytes32 partition = g.partition;
+        uint64 cutoff = g.terminatedAt;
         Tranche[] storage list = _tranches[grantId];
+        uint256 len = list.length;
+
         uint32 done;
         uint256 count;
         // slither-disable-next-line calls-loop,timestamp
         // Bounded by `maxCount`; the cutoff is a stored leaving date, not block.timestamp.
-        for (uint256 i; i < list.length && done < maxCount; ++i) {
-            Tranche storage t = list[i];
+        for (uint256 i; i < len && done < maxCount; ++i) {
+            Tranche memory t = list[i]; // one packed slot, one SLOAD
             if (t.released || t.clawedBack || t.lockId == 0) continue;
-            if (t.vestsAt <= g.terminatedAt) continue; // vested before leaving -- the employee keeps it
+            if (t.vestsAt <= cutoff) continue; // vested before leaving -- the employee keeps it
 
             // Burn what the token says is locked NOW, not the amount recorded at grant time.
             // ATS scales locks by the adjust-balance factor, so after a stock split the two
             // diverge -- and burning the stale, smaller number would leave the employee holding
             // unvested equity they had already forfeited.
-            (uint256 lockedAmount, ) = token.getLockForByPartition(g.partition, g.employee, t.lockId);
+            (uint256 lockedAmount, ) = token.getLockForByPartition(partition, employee, t.lockId);
             if (lockedAmount == 0) {
-                t.clawedBack = true;
+                list[i].clawedBack = true;
                 continue;
             }
 
-            t.clawedBack = true; // effect before interaction
-            if (!token.forceReleaseByPartition(g.partition, t.lockId, g.employee)) revert TokenCallFailed();
+            list[i].clawedBack = true; // effect before interaction
+            if (!token.forceReleaseByPartition(partition, t.lockId, employee)) revert TokenCallFailed();
             burned += lockedAmount;
             ++count;
             unchecked {
@@ -374,7 +389,7 @@ contract ESOPVestingController {
         }
 
         if (burned > 0) {
-            token.controllerRedeemByPartition(g.partition, g.employee, burned, "", "");
+            token.controllerRedeemByPartition(partition, employee, burned, "", "");
             emit ClawedBack(grantId, count, burned);
         }
     }
