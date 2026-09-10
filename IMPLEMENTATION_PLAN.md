@@ -1201,8 +1201,80 @@ no headroom being wasted.
 > eth_estimateGas on Hedera"*.
 
 ### Phase 6 — Automation + polish
-HSS `scheduleCall` auto-vesting (with keeper fallback), Mirror Node indexer, dividends, seeded demo
-data, recorded fallback video.
+HSS `scheduleCall` auto-vesting (with keeper fallback), **an event-driven indexer (below)**,
+dividends, seeded demo data, recorded fallback video.
+
+#### 9.1 Indexer — Subsquid or The Graph, queried over GraphQL
+
+**Design only. Not implemented, and deliberately so** — at demo scale the direct reads are fine and
+an indexer would be infrastructure with nothing to show. It is written down because the ceiling is
+low and arrives suddenly.
+
+**The problem, concretely.** Every read today goes straight to the chain, one call at a time.
+`listEmployees` asks the controller for `nextGrantId` and then calls `getGrant` once per grant;
+`readHolder` then makes several more calls per employee. That is roughly `1 + N + kN` RPC round
+trips to paint one page. With the 14 grants on testnet it is imperceptible. With 5,000 employees
+it is tens of thousands of calls per page load against a rate-limited endpoint, and the issuer
+console simply stops loading. Nothing degrades gracefully; it works and then it does not.
+
+**Everything needed is already emitted.** The contracts were written to be indexable — §3 says
+"emit rich events, the indexer and the demo both read them" — and that holds up:
+
+| Source | Events |
+|---|---|
+| `ESOPVestingController` | `GrantCreated`, `TranchesFunded`, `GrantActivated`, `TrancheVested`, `GrantTerminated`, `ClawedBack`, `PoolReturned`, `GrantReinstated`, `TrancheAccelerated`, `DisputeRaised`, `DisputeResolved`, `ArbiterSet`, `DisputeRelayerSet`, `GrantAdminSet` |
+| `ESOPLendingPool` | `LoanOpened`, `PledgedAndBorrowed`, `Repaid`, `LoanClosed`, `Liquidated`, `UnusedHoldReleased`, `SeizedSharesWithdrawn`, `LiquidityAdded/Removed`, `RiskParamsSet`, `FeedsSet` |
+| ATS token | KYC, control-list, lock and hold events from the diamond |
+
+`GrantCreated(grantId, employee, partition, total, trancheCount)` is the load-bearing one: it
+carries the employee↔grant mapping that `listEmployees` currently rebuilds by walking every id.
+
+**Two things an indexer cannot give you, and pretending otherwise would be the trap.**
+
+1. **Vesting is time-derived, not evented.** A tranche vests because its date passed, and nothing
+   emits when that happens — that is the whole point of §3.3's design, where vesting needs no
+   keeper. So the indexer must store tranche dates and compute `vested`/`unvested` at query time.
+   `TrancheVested` fires on *release*, which is the employee claiming, not the vesting itself.
+   Conflating the two would show every employee as holding nothing until they claim.
+2. **Live token state belongs to ATS.** Free, held and locked balances live in a diamond we do not
+   own, and holds move without our contracts being involved. Balances shown next to money —
+   collateral value, what is pledgeable, what is owed — should stay direct reads. The indexer is
+   for the cap table and history, not for the number someone is about to borrow against.
+
+**Which tool.** Subsquid is the better fit: its EVM processor takes an RPC endpoint plus ABIs and
+does not need a hosted network to support the chain, whereas The Graph's hosted service has no
+Hedera network and would mean running a self-hosted graph-node against Hashio anyway. Either ends
+at the same place — Postgres plus a generated GraphQL API — so this is an operational choice, not
+an architectural one. Verify current Hedera support against `ethskills` before committing; that is
+exactly the class of fact this project has been wrong about before.
+
+**Shape.**
+
+```
+Employee(id: address)   grants: [Grant!]!  loans: [Loan!]!  kyc: KycStatus
+Grant(id: grantId)      employee  total  trancheCount  status  leaver
+                        dispute  disputeDeadline  terminatedBy  clawedBack
+                        tranches: [Tranche!]!
+Tranche(id)             grant  index  amount  vestsAt  released  clawedBack
+Loan(id: loanId)        borrower  principal  repaid  status  openedAt  maturity
+```
+
+One query replaces the whole `1 + N + kN` walk:
+
+```graphql
+query CapTable($first: Int!, $after: String) {
+  employees(first: $first, after: $after, orderBy: grantedTotal_DESC) {
+    id  grantedTotal  clawedBackTotal
+    grants { id status leaver disputeDeadline tranches { amount vestsAt released } }
+  }
+}
+```
+
+**Migration is contained.** `listEmployees` and `readHolder` in `apps/issuer-console/lib/esop.ts`
+are the only places the roster is assembled, so the swap is those two functions plus a GraphQL
+client — the components above them do not change. Keep the direct-read path behind a flag: an
+indexer that has fallen behind is worse than a slow page, and being able to fall back to the chain
+is what makes it safe to depend on.
 
 ### Phase 7 — Stablecoin payroll on Privy
 
