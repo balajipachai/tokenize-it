@@ -652,7 +652,25 @@ should build them in this order:
    vesting is correct and the employee can always self-claim. Ship this first; everything else is
    convenience.
 
-2. **Hedera-native tier (the differentiator) — [VERIFIED AVAILABLE, 2026-09-08].** The **Hedera
+2. **Hedera-native tier (the differentiator) — [NOT AVAILABLE ON TESTNET, corrected 2026-09-10].**
+
+   > **Correction.** This was marked VERIFIED AVAILABLE on the strength of
+   > `hasScheduleCapacity` answering `true`. That was a weaker signal than it looked: the
+   > *view* answers, but `scheduleCall` itself reverts with `INVALID_CONTRACT_ID` for every
+   > target tried, from both an EOA and from contract code, consuming the entire gas limit.
+   > `eth_call` simulates it successfully, which is what made the original check convincing.
+   > Hedera gates system-contract functions individually, so a live capacity probe does not
+   > imply a live scheduler.
+   >
+   > `contracts/automation/VestingScheduler.sol` implements this tier and is believed correct
+   > — it exists because scheduling cannot originate from an EOA at all, so the call has to
+   > come from contract code. It should start working the moment the network enables the
+   > function; nothing about it needs to change. Until then **tier 3 is the tier that runs.**
+   >
+   > The lesson worth keeping: probe a system contract with the function you actually intend
+   > to call, not a neighbouring view.
+
+   The original finding, retained for context: The **Hedera
    Schedule Service system contract at `0x16b`** exposes `scheduleCall` (HIP-1215, consensus node
    v0.68+), which lets a contract schedule an arbitrary future contract call and pay for it.
    `ESOPVestingController` schedules its own `releaseVested(grantId)` at each tranche date, at grant
@@ -1356,7 +1374,7 @@ Phase 5 second.
 | 1b | **Perpetual hold used to dodge clawback** | Medium *(new, from spike C2)* | Held tokens are immune to `controllerRedeemByPartition` and there is no issuer override. `ESOPLendingPool` must never issue a hold with `expirationTimestamp = 0`, and must cap user-supplied expirations |
 | 2 | ~~Privy hollow accounts un-activated~~ | ~~High~~ → **Low** | **Retired by §6.** Employees never send transactions, so their accounts never need activating. Only the backend relayer needs HBAR — one account to fund and monitor |
 | 3 | ~~Chainlink feeds stale or absent~~ | ~~Medium~~ → **Closed** | Verified live (§5.3.2). Residual: use **per-feed** staleness thresholds — USDC/USD was 18 h old at check time and a global 1 h guard would brick the pool |
-| 4 | ~~HIP-1215 unavailable~~ | ~~Low~~ → **Closed** | Verified live (§7). Residual: the 62-day expiry cap forces rolling re-arm; the keeper must detect a failed roll |
+| 4 | **HIP-1215 unavailable** | ~~Low~~ → **REALISED** | `scheduleCall` reverts `INVALID_CONTRACT_ID` on testnet despite `hasScheduleCapacity` returning true (§7). Mitigated exactly as planned: the keeper tier was built to be the fallback and is now the tier that runs. Vesting was never dependent on it — release is permissionless, so correctness was never at stake, only convenience |
 | 5 | ~~37 tranche locks exceed the gas ceiling~~ | ~~Medium~~ → **Closed** | Measured in Phase 1: 425k avg / 535k max per tranche. Safe as one tx per tranche; unsafe if batched (15.7M total vs a 15M ceiling) |
 | 5b | **Relayer downtime blocks all employee actions** | **High** *(new, from Phase 1)* | Protected partitions mean employees cannot transact directly at all. Health-check the relayer, queue and retry submissions, and document a break-glass (temporarily grant the employee `WILD_CARD`, or unprotect the partition) |
 | 6 | ATS SDK v8 API drift vs docs | Medium | The vendored source is ground truth — read `packages/ats/sdk/src/port/in`, not the docs |

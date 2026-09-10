@@ -31,6 +31,14 @@
       "trancheCount": 13,
       "cliffAt": 1788974975,
       "createdAt": "2026-09-09T17:27:53.996Z"
+    },
+    {
+      "grantId": 15,
+      "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
+      "totalAmount": 1000,
+      "trancheCount": 4,
+      "cliffAt": 1789045684,
+      "createdAt": "2026-09-10T13:03:21.170Z"
     }
   ],
   "previousControllers": [
