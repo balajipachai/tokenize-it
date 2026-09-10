@@ -132,6 +132,9 @@ interface IAtsEsop {
         uint256 lockId
     ) external view returns (uint256 amount, uint256 expirationTimestamp);
 
+    /// @dev The issuer's allowlist. False for anyone never onboarded, and for anyone suspended.
+    function isInControlList(address account) external view returns (bool);
+
     function balanceOfByPartition(bytes32 partition, address tokenHolder) external view returns (uint256);
 
     function getLockedAmountForByPartition(bytes32 partition, address tokenHolder) external view returns (uint256);

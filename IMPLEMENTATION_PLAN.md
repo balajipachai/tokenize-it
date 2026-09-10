@@ -1335,11 +1335,12 @@ tranches at ~230k gas against ~425k done singly.
 | At least one Privy control | key quorum **and** policy (see above) |
 | Explain how Privy enables it | employees never hold gas or seed phrases, yet receive salary and service loans from the same wallet |
 
-**Ordering note.** This should probably come *before* Phase 6, not after. Phase 6 is explicitly the
-designated cut line below, and payroll is a whole second submission track. The earlier argument for
-doing Phase 6 first was that its `scheduleCall` scheduler would be reused here — that is weaker
-than it looked: a quorum-approved manual run qualifies on its own, and HSS scheduling is an
-enhancement to payroll rather than a prerequisite for it.
+**Ordering: DECIDED — Phase 7 before Phase 6.** Phase 6 is the designated cut line below, and
+payroll opens a second submission track; spending the remaining time on the item already marked
+first-to-drop would be the worse trade. An earlier argument for doing Phase 6 first was that its
+`scheduleCall` scheduler would be reused here. That was weaker than it looked: a quorum-approved
+manual run qualifies on its own, and HSS scheduling is an enhancement to payroll rather than a
+prerequisite for it.
 
 **Cut line:** Phases 0–4 are the submission. Phase 5 makes it enterprise-credible. Phase 7 opens a
 second prize track. Phase 6 is upside — if you are behind, cut Phase 6 first and the cap table from
