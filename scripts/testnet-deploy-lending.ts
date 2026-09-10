@@ -55,24 +55,48 @@ async function main() {
 
   const token = (await ethers.getContractAt("IAsset", tokenAddress)) as unknown as IAsset;
 
-  step("1", "Deploying the testnet stablecoin...");
-  const USDC = await ethers.getContractFactory("MockUSDC");
-  const usdc = await USDC.deploy();
-  await usdc.waitForDeployment();
-  const usdcAddress = await usdc.getAddress();
-  console.log(`  -> ${usdcAddress}`);
+  // The stablecoin and the NAV oracle are REUSED when they already exist, and only deployed
+  // on a first run. Redeploying the pool is routine -- its own source changes -- but minting a
+  // fresh stablecoin alongside it would silently strand every balance held in the old one and,
+  // worse, split payroll and lending across two different dollars. Salary repaying a loan is
+  // the whole story; it only works if both legs spend the same token.
+  //
+  // Set FRESH_STABLECOIN=1 to force new ones.
+  const fresh = process.env.FRESH_STABLECOIN === "1";
+  const existing = record.lending;
 
-  step("2", `Deploying the NAV oracle at $${NAV_USD} per share...`);
-  // 30% max single move: enough for a real revaluation, tight enough that a fat-fingered
-  // price cannot reprice every outstanding loan in one call.
-  const Nav = await ethers.getContractFactory("EsopNavOracle");
-  const nav = await Nav.deploy("ESOP / USD (Essential Links)", operator.address, 3_000);
-  await nav.waitForDeployment();
-  const navAddress = await nav.getAddress();
-  const navAnswer = ethersLib.parseUnits(NAV_USD, 8);
-  await (await nav.publish(navAnswer, NAV_BASIS)).wait();
-  console.log(`  -> ${navAddress}`);
-  console.log(`     published ${NAV_USD} on basis "${NAV_BASIS}"`);
+  let usdcAddress: string;
+  if (!fresh && existing?.stablecoin?.address) {
+    usdcAddress = existing.stablecoin.address;
+    step("1", `Reusing the existing testnet stablecoin at ${usdcAddress}`);
+    console.log("  -> balances and payroll wiring survive the redeploy");
+  } else {
+    step("1", "Deploying the testnet stablecoin...");
+    const USDC = await ethers.getContractFactory("MockUSDC");
+    const usdcContract = await USDC.deploy();
+    await usdcContract.waitForDeployment();
+    usdcAddress = await usdcContract.getAddress();
+    console.log(`  -> ${usdcAddress}`);
+  }
+  const usdc = await ethers.getContractAt("MockUSDC", usdcAddress);
+
+  let navAddress: string;
+  if (!fresh && existing?.navOracle?.address) {
+    navAddress = existing.navOracle.address;
+    step("2", `Reusing the existing NAV oracle at ${navAddress}`);
+    console.log(`  -> keeps the published price history rather than restarting it`);
+  } else {
+    step("2", `Deploying the NAV oracle at $${NAV_USD} per share...`);
+    // 30% max single move: enough for a real revaluation, tight enough that a fat-fingered
+    // price cannot reprice every outstanding loan in one call.
+    const Nav = await ethers.getContractFactory("EsopNavOracle");
+    const navContract = await Nav.deploy("ESOP / USD (Essential Links)", operator.address, 3_000);
+    await navContract.waitForDeployment();
+    navAddress = await navContract.getAddress();
+    await (await navContract.publish(ethersLib.parseUnits(NAV_USD, 8), NAV_BASIS)).wait();
+    console.log(`  -> ${navAddress}`);
+    console.log(`     published ${NAV_USD} on basis "${NAV_BASIS}"`);
+  }
 
   step("3", "Deploying the lending pool...");
   const Pool = await ethers.getContractFactory("ESOPLendingPool");

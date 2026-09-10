@@ -23,7 +23,7 @@ and their rationale, and the phased delivery plan.
 | 4 | Lending | ✅ live on testnet — borrow, repay and liquidation all driven end-to-end |
 | 5 | Issuer console | ✅ live — dispute window, arbitration and both leaver types driven on testnet |
 | 6 | Automation + polish | not started — auto-vesting, indexer (designed), dividends, demo video |
-| 7 | Stablecoin payroll on Privy | designed — see the plan; supplies the income that services a loan |
+| 7 | Stablecoin payroll on Privy | contract live on testnet (19 tests); Privy org wallet + quorum next |
 
 ## Getting started
 
@@ -82,7 +82,8 @@ Currently verified, both `exact_match`:
 |---|---|
 | ESOP token (ResolverProxy) | [`0x17E651…cE58`](https://hashscan.io/testnet/contract/0x17E651D659704A47932ff7Ffd6032860E468cE58) |
 | ESOPVestingController | [`0x7738f7…683d`](https://hashscan.io/testnet/contract/0x7738f758679bbe8729A01C0313ae3052b21D683d) |
-| ESOPLendingPool | [`0x816214…dB9e`](https://hashscan.io/testnet/contract/0x8162149D3Dec1C54B310416A7996772f5748dB9e) |
+| ESOPLendingPool | [`0xB66844…6d26`](https://hashscan.io/testnet/contract/0xB66844b213f42d682608452E306d3663C2a46d26) |
+| PayrollDisburser | [`0x30aE15…00f3`](https://hashscan.io/testnet/contract/0x30aE1594B8046ac193dBa41D89eeEe8Aa01400f3) |
 | EsopNavOracle | [`0x0C101f…5511`](https://hashscan.io/testnet/contract/0x0C101f1439B2356C2E7b1844FB039b7BB8885511) |
 | MockUSDC (testnet) | [`0x7f22F5…07F9`](https://hashscan.io/testnet/contract/0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9) |
 

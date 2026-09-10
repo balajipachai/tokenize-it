@@ -39,9 +39,9 @@
   ],
   "lending": {
     "pool": {
-      "address": "0x8162149D3Dec1C54B310416A7996772f5748dB9e",
+      "address": "0xB66844b213f42d682608452E306d3663C2a46d26",
       "contractIdentifier": "contracts/tokenize-it/lending/ESOPLendingPool.sol:ESOPLendingPool",
-      "creationTxHash": "0x1a7ec0219698fd681c622137aeb55e0910d8ad6e28acf46516440911ee50ad87",
+      "creationTxHash": "0x03fd412e9172ee74ac23dbef8b584bdcc669e09f06e7b4f721980957e83b94fe",
       "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
     },
     "navOracle": {
@@ -61,10 +61,21 @@
       "address": "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5",
       "source": "Chainlink USDC/USD on Hedera testnet"
     },
-    "deployedAt": "2026-09-09T17:29:40.084Z"
+    "deployedAt": "2026-09-10T11:45:20.005Z"
   },
   "relayer": {
     "address": "0x534D3B33113cF1435d63969059F593bb12e04069",
     "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only — it cannot move tokens without a holder signature."
+  },
+  "payroll": {
+    "address": "0x30aE1594B8046ac193dBa41D89eeEe8Aa01400f3",
+    "contractIdentifier": "contracts/tokenize-it/payroll/PayrollDisburser.sol:PayrollDisburser",
+    "creationTxHash": "0x5e4983a3100881252effad6397ba71db92f4d2df79d30da668e02bc9cd7678e6",
+    "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
+    "treasury": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
+    "stablecoin": "0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9",
+    "payoutRelayer": "0x534D3B33113cF1435d63969059F593bb12e04069",
+    "note": "Treasury becomes a Privy server wallet with a key quorum; setTreasury handles that handover.",
+    "deployedAt": "2026-09-10T11:46:00.210Z"
   }
 }
