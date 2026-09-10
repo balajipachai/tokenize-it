@@ -95,5 +95,14 @@
       "note": "Officer private keys live in apps/employee-portal/.env.payroll.local, gitignored.",
       "createdAt": "2026-09-10T12:00:27.010Z"
     }
+  },
+  "dividends": {
+    "lastDividendId": 1,
+    "amount": 50000,
+    "amountDecimals": 6,
+    "recordDate": 1789046048,
+    "executionDate": 1789046108,
+    "declaredAt": "2026-09-10T13:14:29.798Z",
+    "note": "Declared through the ATS dividend facet; ATS owns the record-date snapshot."
   }
 }

@@ -31,6 +31,7 @@
     "testnet:payroll-demo": "bash scripts/ats-run.sh testnet-payroll-demo.ts hedera-testnet",
     "testnet:set-payroll-treasury": "bash scripts/ats-run.sh testnet-set-payroll-treasury.ts hedera-testnet",
     "testnet:arm-vesting": "bash scripts/ats-run.sh testnet-arm-vesting.ts hedera-testnet",
-    "testnet:vesting-keeper": "bash scripts/ats-run.sh testnet-vesting-keeper.ts hedera-testnet"
+    "testnet:vesting-keeper": "bash scripts/ats-run.sh testnet-vesting-keeper.ts hedera-testnet",
+    "testnet:dividend-demo": "bash scripts/ats-run.sh testnet-dividend-demo.ts hedera-testnet"
   }
 }
