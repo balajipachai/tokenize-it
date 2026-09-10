@@ -1,5 +1,10 @@
 # Testing Phase 3 — the employee portal
 
+> **Superseded as a checklist by [TESTING.md](./TESTING.md)**, which covers every phase in
+> order. This page is kept for what it goes deeper on: Privy first-login behaviour, what an
+> embedded wallet actually is, and the KYC question below — none of which the shorter pass
+> repeats.
+
 Reproduces the end-to-end run: sign in, receive a grant, watch it vest, claim it, and confirm the
 result on-chain independently of the UI. About 5 minutes, most of it waiting for the cliff.
 

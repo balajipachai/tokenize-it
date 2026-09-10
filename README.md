@@ -9,8 +9,19 @@ earned. This project runs the whole lifecycle on-chain — issuance, KYC gating,
 leaver clawback — and then lets an employee borrow against their **vested** ESOPs without selling
 them and without leaving the compliance perimeter.
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the architecture, the design decisions
-and their rationale, and the phased delivery plan.
+## Start here
+
+| If you want to… | Go to |
+|---|---|
+| See it work, in order, end to end | [docs/TESTING.md](./docs/TESTING.md) — a manual pass over every flow |
+| Record or watch the demo | [docs/DEMO.md](./docs/DEMO.md) — a 3:55 shot list |
+| Understand *why* it is built this way | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — decisions, measurements, and the things that turned out wrong |
+| See the one claim that matters | `npm run demo:proof` — the lending pool holds **zero** shares while a loan is open |
+
+The single idea: **collateral never leaves the employee's wallet.** A pledge is an ERC-1400
+hold over their own balance, not a transfer, so the issuer keeps clawback and freeze authority
+over pledged equity and the pool never has to be trusted with custody — because it never has
+any.
 
 ## Status
 
@@ -108,12 +119,44 @@ npm run portal:dev                  # http://localhost:3000
 EMPLOYEE=0x... npm run testnet:grant  # grant options to the wallet the portal shows you
 ```
 
-Step-by-step test/demo script: [docs/TESTING-PHASE-3.md](./docs/TESTING-PHASE-3.md).
+Full manual pass: [docs/TESTING.md](./docs/TESTING.md). For the portal and Privy specifically —
+first-login behaviour, what a Privy wallet actually is, and the KYC question a judge will ask —
+see [docs/TESTING-PHASE-3.md](./docs/TESTING-PHASE-3.md).
 
 Sign in with an email; Privy creates an embedded wallet on first login. The portal shows granted
 vs vested vs still-vesting, a vesting timeline, and a Claim button. The employee never installs a
 wallet, never sees a seed phrase, and never holds HBAR — a backend relayer pays every network fee,
 and reads come straight from the chain.
+
+## Payroll (Phase 7)
+
+```bash
+npm run testnet:deploy-payroll                       # once
+node apps/employee-portal/scripts/setup-payroll-org.mjs   # Privy quorum + policy + treasury
+TREASURY=0x… npm run testnet:set-payroll-treasury    # hand the contract over to the quorum
+```
+
+Salary in stablecoin, from a treasury nobody controls alone. It closes a real hole: interest
+accrues from the first second of a loan, so an employee owes more than they borrowed and
+nothing in the system produced income to cover it. Salary is the missing half — and paying it
+in the same stablecoin the pool lends is what makes "borrow against equity, repay from
+wages" true rather than rhetorical.
+
+Three layers, each answering a different question:
+
+| Layer | Question | Enforced by |
+|---|---|---|
+| Key quorum | *Who approved this run?* | Privy, 2-of-2 officers |
+| Policy | *What can this wallet do at all?* | Privy — `to ∈ {payroll, stablecoin}`, `chain_id = 296` |
+| Contract | *Who may be paid?* | bytecode — allowlisted employees only |
+
+The middle one carries the argument: the treasury is **structurally incapable** of sending to
+the ESOP token, so a compromised payroll wallet cannot become a compromised cap table. Both
+controls were tested by trying to break them — one signature is refused with 401, and a
+request to the equity token carrying a *full* quorum is refused with `policy_violation`.
+
+Runs are drafted in the console's **Payroll** tab and approved per officer, so the threshold
+is visible rather than something you take on trust.
 
 Nothing here needs a testnet account, keys, or a faucet — these are Solidity questions, and a local
 EVM answers the whole suite in about 15 seconds. Reach for testnet only for genuinely
@@ -132,11 +175,15 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 ## Layout
 
 ```
-apps/      employee-portal (Privy, gasless) + issuer-console (equity + payroll tabs)
-contracts/ ESOPVestingController — grants, vesting, leaver clawback
-           lending/ — pool, NAV oracle, testnet stablecoin
-tests/     lifecycle, controller and lending suites (134 tests, ~40s)
-spikes/    Phase 0 experiments, kept because their answers are load-bearing
-scripts/   setup + test harness
-vendor/    ATS checkout (gitignored)
+apps/       employee-portal (Privy, gasless) + issuer-console (equity + payroll tabs)
+contracts/  ESOPVestingController — grants, vesting, leaver clawback, disputes
+            lending/    — pool, NAV oracle, testnet stablecoin
+            payroll/    — PayrollDisburser, accrue-then-withdraw salary
+            automation/ — VestingScheduler (HIP-1215; see the caveat in §7 of the plan)
+services/   indexer/ — mirror-node event ingestion into a cap table
+tests/      lifecycle, controller, lending and payroll suites (153 tests, ~43s)
+spikes/     Phase 0 experiments, kept because their answers are load-bearing
+scripts/    setup, test harness, and one script per testnet flow
+docs/       TESTING.md (manual pass) + DEMO.md (recording script)
+vendor/     ATS checkout (gitignored)
 ```
