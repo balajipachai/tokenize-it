@@ -32,6 +32,10 @@ export interface Holder {
   clawedBack: number;
   /** Terminations cannot be dated before this. */
   grantDate: number | null;
+  /** Clawback is refused until this passes. Zero when the grant is not terminated. */
+  disputeDeadline: number;
+  /** 0 none, 1 raised, 2 upheld, 3 overturned. A raised dispute blocks clawback indefinitely. */
+  dispute: number;
 }
 
 export interface Schedule {
@@ -75,6 +79,52 @@ export function buildSchedule(
  */
 const MAX_JS_DATE_SECONDS = 8_640_000_000_000n;
 
+/**
+ * Every employee the controller knows about, read from the chain.
+ *
+ * The roster used to come from `deployments/hedera-testnet.json`, which only the setup
+ * scripts write. That meant this console could not see the employees it onboarded itself:
+ * issue a grant here, it lands on chain, and the list never shows it. Measured on the live
+ * controller at the time this was found — 14 grants on chain, 1 in the file.
+ *
+ * Grants are walked by id rather than by scanning logs. Hedera's RPC caps log ranges and
+ * needs chunked queries to go back far enough, whereas `nextGrantId` bounds the walk exactly
+ * and cannot miss a grant that predates whatever window a log scan happened to use.
+ *
+ * Deduplicated by employee, because one person can hold several grants — a refresher on top
+ * of a new-hire award is normal, and the cap table should show them as one row.
+ */
+export async function listEmployees(d: Deployment): Promise<Address[]> {
+  const controller = d.esopVestingController.address;
+  const next = await publicClient.readContract({
+    address: controller,
+    abi: controllerAbi,
+    functionName: "nextGrantId",
+  });
+
+  const ids = Array.from({ length: Number(next) - 1 }, (_, i) => BigInt(i + 1));
+  const grants = await Promise.all(
+    ids.map((id) =>
+      publicClient
+        .readContract({ address: controller, abi: controllerAbi, functionName: "getGrant", args: [id] })
+        .catch(() => null),
+    ),
+  );
+
+  const seen = new Set<string>();
+  const out: Address[] = [];
+  for (const g of grants) {
+    if (!g) continue;
+    const employee = (g as { employee: Address }).employee;
+    if (!employee || employee === "0x0000000000000000000000000000000000000000") continue;
+    const key = employee.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(employee);
+  }
+  return out;
+}
+
 export async function readHolder(d: Deployment, address: Address): Promise<Holder> {
   const token = d.esopToken.address;
   const controller = d.esopVestingController.address;
@@ -109,7 +159,7 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
   };
 
   if (grantIds.length === 0) {
-    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0, clawedBack: 0, grantDate: null };
+    return { ...base, grantId: null, status: 0, granted: 0, vested: 0, unvested: 0, clawedBack: 0, grantDate: null, disputeDeadline: 0, dispute: 0 };
   }
 
   const grantId = grantIds[grantIds.length - 1];
@@ -141,6 +191,8 @@ export async function readHolder(d: Deployment, address: Address): Promise<Holde
     // it keeps the console working against controllers deployed before the view existed.
     clawedBack: Number(grant.totalAmount) - Number(vested) - Number(unvested),
     grantDate: Number(grant.grantDate),
+    disputeDeadline: Number(grant.disputeDeadline),
+    dispute: Number(grant.dispute),
   };
 }
 

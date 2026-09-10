@@ -83,6 +83,12 @@ export const controllerAbi = [
           { name: "fundedTranches", type: "uint32" },
           { name: "status", type: "uint8" },
           { name: "leaver", type: "uint8" },
+          // These three were missing, so the console could not see that a dispute window
+          // existed at all: clicking clawback inside it produced a contract refusal and no
+          // explanation, because nothing here knew there was anything to explain.
+          { name: "dispute", type: "uint8" },
+          { name: "disputeDeadline", type: "uint64" },
+          { name: "terminatedBy", type: "address" },
         ],
       },
     ],

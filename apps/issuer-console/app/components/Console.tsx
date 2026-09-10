@@ -10,6 +10,7 @@ import {
   chainNow,
   clawbackGrant,
   issueGrant,
+  listEmployees,
   onboard,
   readHolder,
   setFrozen,
@@ -19,6 +20,25 @@ import {
 } from "@/lib/esop";
 
 const HASHSCAN = "https://hashscan.io/testnet";
+
+/**
+ * Why a clawback cannot run yet, or null when it can.
+ *
+ * The contract refuses during the dispute window and refuses again while a dispute is
+ * unresolved. Before this the button looked ready, did nothing, and said nothing — the click
+ * simply never became a transaction. Saying which of the two is blocking, and for how long,
+ * is the difference between a broken button and a working safeguard.
+ */
+function clawbackBlockedReason(h: Holder): string | null {
+  if (h.dispute === 1) return "Contested — an arbiter must rule first";
+  const left = h.disputeDeadline - Math.floor(Date.now() / 1000);
+  if (left > 0) {
+    const m = Math.floor(left / 60);
+    const s = left % 60;
+    return `Dispute window open — ${m > 0 ? `${m}m ` : ""}${s}s left`;
+  }
+  return null;
+}
 const fmt = (n: number) => n.toLocaleString("en-US");
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -59,9 +79,10 @@ export function Console() {
     // Gate on the connection, not just the render: without this the cap table still
     // arrives over the wire and sits in the network tab for anyone looking.
     if (!d || !account) return;
-    const known = Array.from(
-      new Set([...(d.grants ?? []).map((g) => g.employee), ...(d.demoGrant ? [d.demoGrant.employee] : [])]),
-    ) as Address[];
+    // Read the roster from the controller, not from deployments/hedera-testnet.json. That
+    // file is only written by the setup scripts, so sourcing it here meant this console
+    // could not see the employees it had just onboarded itself.
+    const known = await listEmployees(d);
     const [rows, supply, max, treasury] = await Promise.all([
       Promise.all(known.map((a) => readHolder(d, a))),
       publicClient.readContract({ address: d.esopToken.address, abi: tokenAbi, functionName: "totalSupply" }),
@@ -405,7 +426,8 @@ export function Console() {
                 ) : (
                   <button
                     className="danger"
-                    disabled={!account || !!busy || h.unvested === 0}
+                    disabled={!account || !!busy || h.unvested === 0 || clawbackBlockedReason(h) !== null}
+                    title={clawbackBlockedReason(h) ?? undefined}
                     onClick={() =>
                       void run("Clawing back unvested options", async () => {
                         await clawbackGrant(d, account!, h.grantId!);
@@ -413,7 +435,9 @@ export function Console() {
                       })
                     }
                   >
-                    {h.unvested === 0 ? "Nothing left to claw back" : `Claw back ${fmt(h.unvested)} unvested`}
+                    {h.unvested === 0
+                      ? "Nothing left to claw back"
+                      : (clawbackBlockedReason(h) ?? `Claw back ${fmt(h.unvested)} unvested`)}
                   </button>
                 )}
               </div>
