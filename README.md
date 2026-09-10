@@ -21,7 +21,7 @@ and their rationale, and the phased delivery plan.
 | 2 | `ESOPVestingController` | ✅ 30/30 passing, security-reviewed |
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
 | 4 | Lending | ✅ live on testnet — borrow, repay and liquidation all driven end-to-end |
-| 5 | Issuer console | ✅ live, with dispute window + arbitration |
+| 5 | Issuer console | ✅ live — dispute window, arbitration and both leaver types driven on testnet |
 | 6 | Automation + polish | |
 | 7 | Stablecoin payroll on Privy | designed — see the plan; supplies the income that services a loan |
 
@@ -134,7 +134,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 apps/      employee-portal (Privy, gasless) + issuer-console (MetaMask, HR signs)
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
            lending/ — pool, NAV oracle, testnet stablecoin
-tests/     lifecycle + controller suites (67 tests, ~20s)
+tests/     lifecycle, controller and lending suites (134 tests, ~40s)
 spikes/    Phase 0 experiments, kept because their answers are load-bearing
 scripts/   setup + test harness
 vendor/    ATS checkout (gitignored)

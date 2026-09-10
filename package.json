@@ -25,6 +25,7 @@
     "testnet:grant-relayer": "bash scripts/ats-run.sh testnet-grant-relayer.ts hedera-testnet",
     "testnet:fund-usdc": "bash scripts/ats-run.sh testnet-fund-usdc.ts hedera-testnet",
     "testnet:open-loan": "bash scripts/ats-run.sh testnet-open-loan.ts hedera-testnet",
-    "testnet:liquidation-demo": "bash scripts/ats-run.sh testnet-liquidation-demo.ts hedera-testnet"
+    "testnet:liquidation-demo": "bash scripts/ats-run.sh testnet-liquidation-demo.ts hedera-testnet",
+    "testnet:dispute-demo": "bash scripts/ats-run.sh testnet-dispute-demo.ts hedera-testnet"
   }
 }
