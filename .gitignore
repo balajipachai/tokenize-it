@@ -16,3 +16,6 @@ coverage/
 
 # Privy payroll officer signing keys — never commit
 .env.payroll.local
+
+# indexer output — derived state, rebuildable from chain
+services/indexer/cap-table.json
