@@ -22,7 +22,7 @@ and their rationale, and the phased delivery plan.
 | 3 | Employee portal + Privy | ✅ verified end-to-end in a browser |
 | 4 | Lending | ✅ live on testnet — borrow, repay and liquidation all driven end-to-end |
 | 5 | Issuer console | ✅ live — dispute window, arbitration and both leaver types driven on testnet |
-| 6 | Automation + polish | not started — auto-vesting, indexer (designed), dividends, demo video |
+| 6 | Automation + polish | ✅ keeper auto-vesting, dividends, cap-table indexer, recordable demo script |
 | 7 | Stablecoin payroll on Privy | ✅ live — quorum-approved runs, policy-restricted treasury, gasless delivery |
 
 ## Getting started
