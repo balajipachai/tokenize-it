@@ -28,6 +28,7 @@
     "testnet:liquidation-demo": "bash scripts/ats-run.sh testnet-liquidation-demo.ts hedera-testnet",
     "testnet:dispute-demo": "bash scripts/ats-run.sh testnet-dispute-demo.ts hedera-testnet",
     "testnet:deploy-payroll": "bash scripts/ats-run.sh testnet-deploy-payroll.ts hedera-testnet",
-    "testnet:payroll-demo": "bash scripts/ats-run.sh testnet-payroll-demo.ts hedera-testnet"
+    "testnet:payroll-demo": "bash scripts/ats-run.sh testnet-payroll-demo.ts hedera-testnet",
+    "testnet:set-payroll-treasury": "bash scripts/ats-run.sh testnet-set-payroll-treasury.ts hedera-testnet"
   }
 }

@@ -13,3 +13,6 @@ coverage/
 
 # editor swap files
 *.swp
+
+# Privy payroll officer signing keys — never commit
+.env.payroll.local

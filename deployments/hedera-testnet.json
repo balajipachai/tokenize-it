@@ -72,10 +72,20 @@
     "contractIdentifier": "contracts/tokenize-it/payroll/PayrollDisburser.sol:PayrollDisburser",
     "creationTxHash": "0x5e4983a3100881252effad6397ba71db92f4d2df79d30da668e02bc9cd7678e6",
     "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
-    "treasury": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
+    "treasury": "0x51845f648259F061200AF477901316548cB7150A",
     "stablecoin": "0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9",
     "payoutRelayer": "0x534D3B33113cF1435d63969059F593bb12e04069",
     "note": "Treasury becomes a Privy server wallet with a key quorum; setTreasury handles that handover.",
-    "deployedAt": "2026-09-10T11:46:00.210Z"
+    "deployedAt": "2026-09-10T11:46:00.210Z",
+    "org": {
+      "treasuryWalletId": "si3qjltd5bau0v7nuloqufsx",
+      "treasuryAddress": "0x51845f648259F061200AF477901316548cB7150A",
+      "keyQuorumId": "pk2ocjs8kpjqreg9jc6h6s9s",
+      "threshold": 2,
+      "officers": 2,
+      "policyId": "oqz4t6dnrlav295dzuu7smcc",
+      "note": "Officer private keys live in apps/employee-portal/.env.payroll.local, gitignored.",
+      "createdAt": "2026-09-10T12:00:27.010Z"
+    }
   }
 }
