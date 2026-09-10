@@ -410,3 +410,71 @@ label.inline input {
   margin: 10px 0 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* Payroll run table. Deliberately NOT `.grid`, which is a form-field grid in this file —
+   reusing it collapsed the header into a single cell. */
+.payroll-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+  font-size: 14px;
+}
+
+.payroll-table th {
+  text-align: left;
+  font-weight: 550;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.payroll-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+
+.payroll-table th:not(:first-child),
+.payroll-table td:not(:first-child) {
+  text-align: right;
+}
+
+.payroll-table td:last-child,
+.payroll-table th:last-child {
+  width: 130px;
+}
+
+.payroll-table input {
+  text-align: right;
+}
+
+/* Equity / Payroll tabs. Two jobs, done by different people on different days. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 550;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.tab:hover { color: #111827; background: none; }
+
+.tab.active {
+  color: #1d4ed8;
+  border-bottom-color: #1d4ed8;
+}

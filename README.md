@@ -132,7 +132,7 @@ Hedera-specific behaviour (gas ceilings, the Schedule Service, the mirror node).
 ## Layout
 
 ```
-apps/      employee-portal (Privy, gasless) + issuer-console (MetaMask, HR signs)
+apps/      employee-portal (Privy, gasless) + issuer-console (equity + payroll tabs)
 contracts/ ESOPVestingController — grants, vesting, leaver clawback
            lending/ — pool, NAV oracle, testnet stablecoin
 tests/     lifecycle, controller and lending suites (134 tests, ~40s)

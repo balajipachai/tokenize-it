@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { isAddress } from "viem";
 import { connect, publicClient, watchWallet } from "@/lib/wallet";
+import { Payroll } from "./Payroll";
 import { controllerAbi, tokenAbi } from "@/lib/abi";
 import {
   buildSchedule,
@@ -52,6 +53,10 @@ export function Console() {
   const [pool, setPool] = useState<{ supply: number; max: number; treasury: number } | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
+  // Equity and payroll are separate jobs done by different people on different days, and the
+  // single page had grown to a cap table plus a pay run plus every employee. Splitting them
+  // is housekeeping, not architecture — both still read the same chain state.
+  const [tab, setTab] = useState<"equity" | "payroll">("equity");
   const [notice, setNotice] = useState<string | null>(null);
 
   // Grant form
@@ -219,7 +224,30 @@ export function Console() {
         </div>
       )}
 
-      {account && pool && (
+      {account && (
+        <div className="tabs" role="tablist">
+          <button
+            role="tab"
+            aria-selected={tab === "equity"}
+            className={tab === "equity" ? "tab active" : "tab"}
+            onClick={() => setTab("equity")}
+          >
+            Equity
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === "payroll"}
+            className={tab === "payroll" ? "tab active" : "tab"}
+            onClick={() => setTab("payroll")}
+          >
+            Payroll
+          </button>
+        </div>
+      )}
+
+      {account && tab === "payroll" && <Payroll employees={holders.map((h) => h.address)} />}
+
+      {account && tab === "equity" && pool && (
         <div className="card">
           <h2>Option pool</h2>
           <div className="stats">
@@ -243,7 +271,7 @@ export function Console() {
         </div>
       )}
 
-      {account && (
+      {account && tab === "equity" && (
       <div className="card">
         <h2>Issue a grant</h2>
         <div className="grid">
@@ -320,7 +348,7 @@ export function Console() {
       </div>
       )}
 
-      {account && (
+      {account && tab === "equity" && (
       <div className="card">
         <h2>Employees</h2>
         {holders.length === 0 && <p className="muted">No grants issued yet.</p>}
