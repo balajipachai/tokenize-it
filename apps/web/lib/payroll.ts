@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PrivyClient, generateAuthorizationSignature } from "@privy-io/node";
 import { createPublicClient, encodeFunctionData, http, parseUnits, formatUnits, type Address } from "viem";
+import { payrollAbi } from "./abi";
 
 /**
  * Server side of payroll.
@@ -23,13 +24,6 @@ export const publicClient = createPublicClient({ transport: http(RPC) });
 const erc20Abi = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
-] as const;
-
-const payrollAbi = [
-  { type: "function", name: "fundRun", stateMutability: "nonpayable", inputs: [{ type: "address[]" }, { type: "uint256[]" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "accrued", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "lifetimeEarned", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "totalAccrued", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 
 interface Org {

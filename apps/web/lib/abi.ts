@@ -158,6 +158,34 @@ export const controllerAbi = [
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ type: "bool" }],
   },
+  // The employee's side of the appeal. Callable by them or by a dispute relayer, because
+  // someone just terminated is exactly the person least likely to have gas.
+  {
+    type: "function",
+    name: "raiseDispute",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "grantId", type: "uint256" }],
+    outputs: [],
+  },
+] as const;
+
+/**
+ * PayrollDisburser. Shared by the issuer side, which funds runs, and the employee side,
+ * which collects — one definition, for the same reason the controller has one.
+ */
+export const payrollAbi = [
+  { type: "function", name: "fundRun", stateMutability: "nonpayable",
+    inputs: [{ type: "address[]" }, { type: "uint256[]" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "accrued", stateMutability: "view",
+    inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "lifetimeEarned", stateMutability: "view",
+    inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "totalAccrued", stateMutability: "view",
+    inputs: [], outputs: [{ type: "uint256" }] },
+  // Delivered BY the relayer, TO the employee. The contract sends only ever to `employee`,
+  // so the relayer chooses when someone is paid and never whether, how much, or to whom.
+  { type: "function", name: "withdrawFor", stateMutability: "nonpayable",
+    inputs: [{ name: "employee", type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
 export const controllerEvents = [

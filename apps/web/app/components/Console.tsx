@@ -47,6 +47,7 @@ type Busy = { what: string; detail?: string } | null;
 
 export function Console() {
   const [account, setAccount] = useState<Address | null>(null);
+  const [, forceTick] = useState(0);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [d, setD] = useState<Deployment | null>(null);
   const [holders, setHolders] = useState<Holder[]>([]);
@@ -108,6 +109,15 @@ export function Console() {
     // looks like "no employees yet" rather than "the reads broke".
     refresh().catch((e) => setError(e instanceof Error ? e.message.split("\n")[0] : "Could not read chain state."));
   }, [refresh]);
+
+  // `clawbackBlockedReason` computes the remaining dispute window from Date.now() at render
+  // time, so without a tick of its own the countdown froze at whatever it read on the last
+  // chain refresh. It looked like a stuck clock and read as a bug in the contract's timing.
+  // A second-by-second re-render, with no extra RPC traffic behind it, is all it needed.
+  useEffect(() => {
+    const tick = setInterval(() => forceTick((n) => n + 1), 1_000);
+    return () => clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     if (!account) {

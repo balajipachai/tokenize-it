@@ -106,6 +106,51 @@ export interface ComplianceView {
   credentialId: string | null;
   issuer: string | null;
   validTo: number | null;
+  /**
+   * Suspended by the issuer — cannot move equity, but keeps everything they hold.
+   *
+   * DERIVED, and it has to be. ATS's `setAddressFrozen` does not set a freeze flag in
+   * whitelist mode; it removes the address from the CONTROL LIST, while `isFrozen()` reads
+   * a partial-freeze counter that `setAddressFrozen` never touches. Reading `isFrozen()`
+   * here would cheerfully report `false` for a suspended employee.
+   *
+   * So suspension is "onboarded, but no longer allowlisted, and not terminated". The last
+   * clause matters: a terminated leaver is also off the allowlist, and calling that
+   * "suspended" would tell someone who has just been dismissed that they are merely paused.
+   */
+  suspended: boolean;
+}
+
+/** GrantStatus, from ESOPVestingController. */
+export const GRANT_ACTIVE = 1;
+export const GRANT_FUNDED = 2;
+export const GRANT_TERMINATED = 3;
+
+/** DisputeState, from ESOPVestingController. */
+export const DISPUTE_NONE = 0;
+export const DISPUTE_RAISED = 1;
+export const DISPUTE_UPHELD = 2;
+export const DISPUTE_OVERTURNED = 3;
+
+/**
+ * Everything about a termination the employee is entitled to see.
+ *
+ * Read from `getGrant` and previously thrown away. Without it the portal cannot tell a
+ * dismissed employee that they have a right of appeal, or how long is left to use it —
+ * which makes `raiseDispute` a function that exists and that nobody can reach.
+ */
+export interface TerminationView {
+  terminated: boolean;
+  /** 0 none, 1 good leaver, 2 bad leaver. */
+  leaver: number;
+  terminatedAt: number | null;
+  /** The address that made the decision. Recorded on-chain so attribution means something. */
+  terminatedBy: string | null;
+  /** 0 none, 1 raised, 2 upheld, 3 overturned. */
+  dispute: number;
+  disputeDeadline: number | null;
+  /** Whether an appeal can still be raised right now. */
+  canDispute: boolean;
 }
 
 export interface PositionView {
@@ -128,6 +173,7 @@ export interface PositionView {
   nextVestAt: number | null;
   tranches: TrancheView[];
   compliance: ComplianceView;
+  termination: TerminationView;
 }
 
 /** Block the controller was created in, so log queries have a bounded range. */
@@ -186,6 +232,16 @@ async function vestTxByTranche(
  */
 const MAX_JS_DATE_SECONDS = 8_640_000_000_000n;
 
+const NO_TERMINATION: TerminationView = {
+  terminated: false,
+  leaver: 0,
+  terminatedAt: null,
+  terminatedBy: null,
+  dispute: DISPUTE_NONE,
+  disputeDeadline: null,
+  canDispute: false,
+};
+
 async function readCompliance(token: Address, wallet: Address): Promise<ComplianceView> {
   const [kyc, allowlisted] = await Promise.all([
     publicClient.readContract({ address: token, abi: tokenAbi, functionName: "getKycFor", args: [wallet] }),
@@ -198,6 +254,9 @@ async function readCompliance(token: Address, wallet: Address): Promise<Complian
     credentialId: granted && kyc.vcId ? kyc.vcId : null,
     issuer: granted ? kyc.issuer : null,
     validTo: granted && kyc.validTo > 0n && kyc.validTo <= MAX_JS_DATE_SECONDS ? Number(kyc.validTo) : null,
+    // Filled in by the caller, which is the only place that knows the grant status. See
+    // the note on the field: without the status, suspension and dismissal look identical.
+    suspended: false,
   };
 }
 
@@ -244,7 +303,10 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       locked: Number(locked),
       nextVestAt: null,
       tranches: [],
-      compliance,
+      // Nobody with no grant has been terminated, but they CAN still be suspended -- an
+      // employee onboarded and then suspended before their grant was issued.
+      compliance: { ...compliance, suspended: compliance.kycGranted && !compliance.allowlisted },
+      termination: NO_TERMINATION,
     };
   }
 
@@ -282,6 +344,22 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
 
   const vestTx = await vestTxByTranche(controller, grantId, wallet);
   const now = Math.floor(Date.now() / 1000);
+
+  const terminated = Number(grant.status) === GRANT_TERMINATED;
+  const deadline = Number(grant.disputeDeadline);
+  const termination: TerminationView = {
+    terminated,
+    leaver: Number(grant.leaver),
+    terminatedAt: terminated ? Number(grant.terminatedAt) : null,
+    terminatedBy: terminated ? grant.terminatedBy : null,
+    dispute: Number(grant.dispute),
+    disputeDeadline: terminated && deadline > 0 ? deadline : null,
+    // Exactly the contract's own preconditions for raiseDispute, so the button appears
+    // only when the call would actually succeed. Anything looser produces the failure this
+    // project has hit before: a button that looks ready, does nothing, and says nothing.
+    canDispute: terminated && Number(grant.dispute) === DISPUTE_NONE && deadline > now,
+  };
+
   return {
     ...base,
     hasGrant: true,
@@ -299,6 +377,7 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
     spendable: Number(spendable),
     locked: Number(locked),
     nextVestAt: Number(nextVest) === 0 ? null : Number(nextVest),
+    termination,
     tranches: tranches.map((t, index) => ({
       index,
       amount: Number(t.amount),
@@ -308,7 +387,8 @@ export async function readPosition(wallet: Address): Promise<PositionView> {
       vested: Number(t.vestsAt) <= now,
       txHash: vestTx.get(index) ?? null,
     })),
-    compliance,
+    // Off the allowlist while the grant is still live means suspended, not dismissed.
+    compliance: { ...compliance, suspended: compliance.kycGranted && !compliance.allowlisted && !terminated },
   };
 }
 

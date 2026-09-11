@@ -411,18 +411,8 @@ input:focus {
   font-size: 12px;
 }
 
-.issuer .banner.busy {
-  background: #eff6ff;
-  color: #1e3a8a;
-}
-
 .issuer .muted.warn {
   color: #b45309;
-}
-
-.issuer .muted.small {
-  font-size: 11px;
-  margin-top: 10px;
 }
 
 .issuer label.inline {
@@ -574,4 +564,31 @@ input:focus {
 .sideswitch a.on {
   background: var(--ink);
   color: #fff;
+}
+
+/* ---- states the employee is entitled to see ----
+   Added because suspension and termination had no visual language at all: a suspended
+   employee saw a countdown to their next vest, and a dismissed one saw a bare
+   "Not allowlisted" with no mention that an appeal existed. */
+
+.banner.warn {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+/* Promoted out of the issuer block: both halves use these now. */
+.banner.busy {
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.muted.small {
+  font-size: 11px;
+  margin-top: 10px;
+}
+
+.card.contest {
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 3px #fee2e2;
 }

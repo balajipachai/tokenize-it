@@ -39,7 +39,15 @@ const owedAmount = (v: string) =>
   Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const shortHash = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
 
-export function Borrow({ wallet, onChanged }: { wallet: string; onChanged: () => void }) {
+export function Borrow({
+  wallet,
+  onChanged,
+  suspended = false,
+}: {
+  wallet: string;
+  onChanged: () => void;
+  suspended?: boolean;
+}) {
   const { getAccessToken } = usePrivy();
   const { signTypedData } = useSignTypedData();
 
@@ -143,7 +151,11 @@ export function Borrow({ wallet, onChanged }: { wallet: string; onChanged: () =>
   if (!state) return null;
 
   const open = state.loans.filter((l) => l.status === 1);
-  const canBorrow = state.pledgeable > 0 && open.length === 0;
+  // Suspension is checked here and not only on the chain. A pledge places a hold through
+  // the token's compliance stack, and a suspended holder is off the allowlist, so the call
+  // reverts -- which would reach the employee as a button that looked ready, did nothing,
+  // and said nothing. Repayment stays available: closing a loan should never be blocked.
+  const canBorrow = state.pledgeable > 0 && open.length === 0 && !suspended;
   const requested = Number(amount || "0");
   const ceiling = Number(state.borrowable);
   const overCeiling = requested > ceiling;
@@ -255,9 +267,11 @@ export function Borrow({ wallet, onChanged }: { wallet: string; onChanged: () =>
             </div>
           ) : (
             <p className="muted" style={{ marginTop: 12 }}>
-              {state.pledgeable === 0
-                ? "Claim some vested options first — only claimed shares can be pledged."
-                : "You already have a loan open."}
+              {suspended
+                ? "Borrowing is paused while your account is suspended — a pledge moves your shares into a hold, and the issuer has transfers paused. Your options are untouched."
+                : state.pledgeable === 0
+                  ? "Claim some vested options first — only claimed shares can be pledged."
+                  : "You already have a loan open."}
             </p>
           )}
         </>

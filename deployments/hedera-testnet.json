@@ -40,6 +40,14 @@
       "trancheCount": 13,
       "cliffAt": 1789103313,
       "createdAt": "2026-09-11T05:06:48.383Z"
+    },
+    {
+      "grantId": 4,
+      "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
+      "totalAmount": 2400,
+      "trancheCount": 13,
+      "cliffAt": 1789112952,
+      "createdAt": "2026-09-11T07:47:38.131Z"
     }
   ],
   "previousControllers": [
@@ -75,7 +83,7 @@
   },
   "relayer": {
     "address": "0x534D3B33113cF1435d63969059F593bb12e04069",
-    "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only \u2014 it cannot move tokens without a holder signature."
+    "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only — it cannot move tokens without a holder signature."
   },
   "payroll": {
     "address": "0x23608aC73e238F95a378233318E526EE6059e013",

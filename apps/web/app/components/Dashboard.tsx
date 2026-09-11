@@ -20,6 +20,26 @@ interface Compliance {
   credentialId: string | null;
   issuer: string | null;
   validTo: number | null;
+  suspended: boolean;
+}
+
+interface Termination {
+  terminated: boolean;
+  leaver: number;
+  terminatedAt: number | null;
+  terminatedBy: string | null;
+  dispute: number;
+  disputeDeadline: number | null;
+  canDispute: boolean;
+}
+
+interface Salary {
+  configured: boolean;
+  payroll: string | null;
+  stablecoin: string | null;
+  accrued: string;
+  lifetimeEarned: string;
+  walletBalance: string;
 }
 
 interface Position {
@@ -39,6 +59,7 @@ interface Position {
   nextVestAt: number | null;
   tranches: Tranche[];
   compliance: Compliance;
+  termination: Termination;
 }
 
 const HASHSCAN = "https://hashscan.io/testnet";
@@ -53,6 +74,10 @@ function TxLink({ hash, label }: { hash: string; label?: string }) {
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
+
+/** Stablecoin amounts arrive as decimal strings. Two places, one format. */
+const money = (v: string) =>
+  Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function countdown(target: number): string {
   const secs = target - Math.floor(Date.now() / 1000);
@@ -91,6 +116,9 @@ export function Dashboard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [claimHash, setClaimHash] = useState<string | null>(null);
+  const [salary, setSalary] = useState<Salary | null>(null);
+  const [collecting, setCollecting] = useState(false);
+  const [disputing, setDisputing] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [walletPending, setWalletPending] = useState(false);
   const [, forceTick] = useState(0);
@@ -109,15 +137,29 @@ export function Dashboard() {
     return body as Position;
   }, [getAccessToken]);
 
+  const fetchSalary = useCallback(async (): Promise<Salary | null> => {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch("/api/salary", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return (await res.json()) as Salary;
+    } catch {
+      // Salary is a separate concern from equity. A payroll contract that is missing or
+      // unreachable should hide its own card, never stop the vesting page from rendering.
+      return null;
+    }
+  }, [getAccessToken]);
+
   const load = useCallback(async () => {
     try {
-      const next = await fetchPosition();
+      const [next, pay] = await Promise.all([fetchPosition(), fetchSalary()]);
       if (next) setPosition(next);
+      setSalary(pay);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your equity.");
     }
-  }, [fetchPosition]);
+  }, [fetchPosition, fetchSalary]);
 
   useEffect(() => {
     void load();
@@ -129,6 +171,67 @@ export function Dashboard() {
       clearInterval(tick);
     };
   }, [load, walletPending]);
+
+  /**
+   * Submits a relayed action and waits for the receipt rather than inferring from balances.
+   * A reverted transaction never changes a balance, so inference can only ever time out —
+   * which is how an earlier version left people watching a spinner for 30 seconds to be
+   * told nothing at all.
+   */
+  async function relayed(
+    path: string,
+    busy: (v: boolean) => void,
+    onDone: (body: { amount?: string }) => string,
+    failure: string,
+  ) {
+    busy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? failure);
+      const hash: string | null = body.hash ?? null;
+      if (!hash) throw new Error(failure);
+
+      let settled: "pending" | "success" | "reverted" = "pending";
+      for (let i = 0; i < 40 && settled === "pending"; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const poll = await fetch(`/api/tx/${hash}`, {
+          headers: { Authorization: `Bearer ${await getAccessToken()}` },
+        });
+        if (poll.ok) settled = (await poll.json()).status;
+      }
+      if (settled === "reverted") throw new Error(`${failure} It was rejected on-chain.`);
+      if (settled === "pending") {
+        setNotice("Submitted. It is taking longer than usual to confirm.");
+        return;
+      }
+      await load();
+      setNotice(onDone(body));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : failure);
+    } finally {
+      busy(false);
+    }
+  }
+
+  const collectSalary = () =>
+    relayed(
+      "/api/salary",
+      setCollecting,
+      (b) => `Collected ${b.amount ?? ""} USDC. It is in your wallet now.`,
+      "The payout did not go through.",
+    );
+
+  const contest = () =>
+    relayed(
+      "/api/dispute",
+      setDisputing,
+      () => "Appeal filed. Your unvested options cannot be forfeited until an arbiter rules.",
+      "Could not file the appeal.",
+    );
 
   async function claim() {
     setClaiming(true);
@@ -266,6 +369,106 @@ export function Dashboard() {
         </div>
       )}
 
+      {/*
+        Status the employee is entitled to know before anything else on the page.
+
+        Both of these were invisible until now, which produced the worst version of each:
+        a suspended employee saw a cheerful countdown to their next vest, and a dismissed
+        one saw "Not allowlisted" with no explanation and no mention that they had a right
+        of appeal at all.
+      */}
+      {position?.compliance.suspended && (
+        <div className="banner warn">
+          <strong>Your account is suspended.</strong> Nothing has been taken from you: you keep
+          every option you hold, and vesting carries on exactly as before — suspension is not
+          forfeiture. Claiming still works too, and the options land in your wallet. What the
+          issuer has paused is <em>movement</em>: while you are suspended you cannot transfer
+          shares or pledge them for a loan.
+        </div>
+      )}
+
+      {position?.termination.terminated && (
+        <div className={`card ${position.termination.canDispute ? "contest" : ""}`}>
+          <h2>{position.termination.leaver === 1 ? "You have left" : "Your grant was terminated"}</h2>
+          <p className="muted">
+            {position.termination.leaver === 1
+              ? "Recorded as a good leaver: everything vested up to your leaving date stays yours. Vesting stopped on that date."
+              : "Recorded as a bad leaver: everything vested up to your leaving date stays yours, and the unvested remainder may be forfeited."}
+            {position.termination.terminatedAt && (
+              <>
+                {" "}Effective {new Date(position.termination.terminatedAt * 1000).toLocaleString("en-US")}.
+              </>
+            )}
+          </p>
+          {position.termination.terminatedBy && (
+            <p className="muted" style={{ marginTop: 8 }}>
+              Decided by{" "}
+              <a
+                className="txlink"
+                href={`${HASHSCAN}/account/${position.termination.terminatedBy}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {position.termination.terminatedBy}
+              </a>
+              {" "}— recorded on-chain, so the decision has a name against it.
+            </p>
+          )}
+
+          {position.termination.dispute === 1 && (
+            <div className="banner busy" style={{ marginTop: 12 }}>
+              <strong>Appeal filed.</strong> Your unvested options cannot be forfeited until an
+              arbiter rules. The arbiter is a multisig, and the person who terminated your grant is
+              barred from judging it.
+            </div>
+          )}
+          {position.termination.dispute === 2 && (
+            <div className="banner error" style={{ marginTop: 12 }}>
+              An arbiter upheld the termination. The forfeiture may now proceed.
+            </div>
+          )}
+          {position.termination.dispute === 3 && (
+            <div className="banner ok" style={{ marginTop: 12 }}>
+              An arbiter overturned the termination. Your grant was reinstated.
+            </div>
+          )}
+
+          {position.termination.canDispute && position.termination.disputeDeadline && (
+            <div style={{ marginTop: 14 }}>
+              <p className="muted" style={{ marginBottom: 10 }}>
+                You can contest this. Nothing can be forfeited while an appeal is open, and filing
+                one costs you nothing — your employer pays the fee, as with everything else here.
+                <br />
+                <strong>
+                  {(() => {
+                    const left = position.termination.disputeDeadline - Math.floor(Date.now() / 1000);
+                    if (left <= 0) return "The window has closed.";
+                    const m = Math.floor(left / 60);
+                    const sec = left % 60;
+                    return `${m > 0 ? `${m}m ` : ""}${sec}s left to contest.`;
+                  })()}
+                </strong>
+              </p>
+              <button disabled={disputing} onClick={() => void contest()}>
+                {disputing ? (
+                  <>
+                    <span className="spinner small" /> Filing…
+                  </>
+                ) : (
+                  "Contest this termination"
+                )}
+              </button>
+            </div>
+          )}
+
+          {!position.termination.canDispute && position.termination.dispute === 0 && (
+            <p className="muted" style={{ marginTop: 12 }}>
+              The window to contest this has closed.
+            </p>
+          )}
+        </div>
+      )}
+
       {position && !position.hasGrant && (
         <div className="card">
           <h2>No grant yet</h2>
@@ -316,9 +519,15 @@ export function Dashboard() {
               </div>
               <div className="stat">
                 <div className="value">
-                  {position.nextVestAt ? countdown(position.nextVestAt) : position.status === 3 ? "—" : "fully vested"}
+                  {position.termination.terminated
+                    ? "stopped"
+                    : position.nextVestAt
+                      ? countdown(position.nextVestAt)
+                      : "fully vested"}
                 </div>
-                <div className="label">Next vest</div>
+                <div className="label">
+                  {position.termination.terminated ? "Vesting" : "Next vest"}
+                </div>
               </div>
             </div>
 
@@ -373,7 +582,81 @@ export function Dashboard() {
         </>
       )}
 
-      {position?.hasGrant && <Borrow wallet={position.wallet} onChanged={() => void load()} />}
+      {/*
+        Salary sits between equity and borrowing on purpose: it is the half that makes the
+        loan repayable. Interest accrues from the first second, so an employee owes more
+        than they borrowed and nothing else here produces the income to cover it.
+
+        Until this card existed the accrual had nowhere to surface. Payroll could run, the
+        money could sit in the contract with the employee's name on it, and from this side
+        it looked exactly like nothing having happened.
+      */}
+      {salary?.configured && (
+        <div className="card">
+          <h2>Salary</h2>
+          <div className="stats">
+            <div className="stat" title="Earned and waiting for you to collect it">
+              <div className="value">{money(salary.accrued)}</div>
+              <div className="label">Ready to collect (USDC)</div>
+            </div>
+            <div className="stat" title="Stablecoin actually in your wallet right now">
+              <div className="value">{money(salary.walletBalance)}</div>
+              <div className="label">In your wallet (USDC)</div>
+            </div>
+            <div className="stat" title="Everything ever earned, collected or not">
+              <div className="value">{money(salary.lifetimeEarned)}</div>
+              <div className="label">Earned to date (USDC)</div>
+            </div>
+          </div>
+
+          {Number(salary.accrued) > 0 ? (
+            <div style={{ marginTop: 16 }}>
+              <button disabled={collecting} onClick={() => void collectSalary()}>
+                {collecting ? (
+                  <>
+                    <span className="spinner small" /> Collecting…
+                  </>
+                ) : (
+                  `Collect ${money(salary.accrued)} USDC`
+                )}
+              </button>
+              <p className="muted" style={{ marginTop: 10 }}>
+                Your salary is credited to you and waits here until you take it — it is never
+                pushed at your wallet. Your employer pays the network fee, so collecting costs
+                you nothing and you never need HBAR.
+              </p>
+            </div>
+          ) : (
+            <p className="muted" style={{ marginTop: 12 }}>
+              Nothing waiting to be collected. New salary appears here the moment a payroll run
+              is approved, and it is the same stablecoin the lending pool lends — so wages can
+              repay a loan directly.
+            </p>
+          )}
+
+          {salary.payroll && (
+            <p className="muted small" style={{ marginTop: 12 }}>
+              Paid from{" "}
+              <a
+                className="txlink"
+                href={`${HASHSCAN}/contract/${salary.payroll}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {shortHash(salary.payroll)}
+              </a>
+            </p>
+          )}
+        </div>
+      )}
+
+      {position?.hasGrant && (
+        <Borrow
+          wallet={position.wallet}
+          onChanged={() => void load()}
+          suspended={position.compliance.suspended}
+        />
+      )}
 
       {position && (
         <div className="card">
@@ -391,7 +674,15 @@ export function Dashboard() {
             </li>
             <li className="tranche two">
               <span className={`dot ${position.compliance.allowlisted ? "vested" : ""}`} />
-              <span>{position.compliance.allowlisted ? "On the issuer allowlist" : "Not allowlisted"}</span>
+              <span>
+                {position.compliance.allowlisted
+                  ? "On the issuer allowlist"
+                  : position.compliance.suspended
+                    ? "Suspended — off the allowlist while the issuer has transfers paused"
+                    : position.termination.terminated
+                      ? "Off the allowlist — removed when your grant was terminated"
+                      : "Not allowlisted"}
+              </span>
             </li>
           </ul>
           {position.compliance.credentialId && (
