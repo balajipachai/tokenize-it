@@ -32,6 +32,8 @@
     "demo:proof": "node apps/web/scripts/proof-no-custody.mjs",
     "dev": "npm --prefix apps/web run dev",
     "build": "npm --prefix apps/web run build",
-    "typecheck": "npm --prefix apps/web run typecheck"
+    "typecheck": "npm --prefix apps/web run typecheck",
+    "testnet:retire-stack": "bash scripts/ats-run.sh testnet-retire-stack.ts hedera-testnet",
+    "testnet:fund-grant": "bash scripts/ats-run.sh testnet-fund-grant.ts hedera-testnet"
   }
 }

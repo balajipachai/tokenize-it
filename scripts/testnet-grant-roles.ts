@@ -73,7 +73,7 @@ async function main() {
     console.log("  -> no relayer recorded; employees could not contest gaslessly");
   }
 
-  console.log("\nDone. Connect this wallet in the issuer console at http://localhost:3001");
+  console.log("\nDone. Connect this wallet in the issuer console at http://localhost:3000/issuer");
 }
 
 main().catch((e) => {

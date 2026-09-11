@@ -73,7 +73,12 @@ async function main() {
   }
   console.log(`  -> a run pays only allowlisted employees; that check is in bytecode, not a policy`);
 
+  // Assignment, not replacement: `org` holds the Privy quorum, policy and treasury wallet
+  // ids, which this script did not create and cannot recreate. Overwriting the whole object
+  // wiped them on a redeploy and left the treasury unreachable -- a wallet holding real
+  // HBAR, with the only pointer to it gone.
   record.payroll = {
+    ...(record.payroll ?? {}),
     address,
     contractIdentifier: "contracts/tokenize-it/payroll/PayrollDisburser.sol:PayrollDisburser",
     creationTxHash: tx?.hash ?? null,
@@ -85,6 +90,12 @@ async function main() {
     deployedAt: new Date().toISOString(),
   };
   fs.writeFileSync(DEPLOYMENTS, JSON.stringify(record, null, 2) + "\n");
+
+  if (record.payroll.org?.policyId) {
+    console.log("\n\x1b[33m  The treasury policy still names the PREVIOUS payroll contract.\x1b[0m");
+    console.log("  Until it is re-pointed, a quorum-approved run is refused with policy_violation:");
+    console.log("    node apps/web/scripts/sync-payroll-policy.mjs");
+  }
 
   console.log("\n" + "=".repeat(72));
   console.log("  Recorded in deployments/hedera-testnet.json");

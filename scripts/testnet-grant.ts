@@ -37,6 +37,15 @@ const TRANCHE_SPACING = Number(process.env.DEMO_TRANCHE_SECONDS ?? 900);
  */
 const GAS = { gasLimit: 900_000n };
 
+/**
+ * Funding needs its own, far larger allowance: every tranche is a separate ATS lock at
+ * roughly 425k gas. Eight of them stay inside Hedera's 15M per-transaction ceiling, and the
+ * limit is that ceiling rather than an estimate -- Hedera charges gas USED, not OFFERED, so
+ * a high limit is free and a tight one is how this reverts with no revert data at all.
+ */
+const FUND_BATCH = 8;
+const FUND_GAS = { gasLimit: 15_000_000n };
+
 const REPO_ROOT = process.env.TOKENIZE_IT_ROOT ?? path.resolve(__dirname, "../../../../../../..");
 const DEPLOYMENTS = path.join(REPO_ROOT, "deployments", "hedera-testnet.json");
 
@@ -108,9 +117,9 @@ async function main() {
   }
 
   const grantId = await controller.nextGrantId();
-  await (await controller.createGrant(employee, PARTITION, amounts, dates)).wait();
+  await (await controller.createGrant(employee, PARTITION, amounts, dates, GAS)).wait();
   for (;;) {
-    await (await controller.fundTranches(grantId, 20)).wait();
+    await (await controller.fundTranches(grantId, FUND_BATCH, FUND_GAS)).wait();
     if (Number((await controller.getGrant(grantId)).status) === 2) break;
   }
 

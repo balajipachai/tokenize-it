@@ -36,6 +36,20 @@ const DISPUTE_WINDOW = Number(process.env.DISPUTE_WINDOW_SECONDS ?? 180);
 const REPO_ROOT = process.env.TOKENIZE_IT_ROOT ?? path.resolve(__dirname, "../../../../../../..");
 const DEPLOYMENTS = path.join(REPO_ROOT, "deployments", "hedera-testnet.json");
 
+/**
+ * Funding is the expensive call in this script: each tranche is a separate ATS lock at
+ * roughly 425k gas, measured in Phase 1.
+ *
+ * Both numbers below are deliberate. The batch is small enough that 8 locks stay well
+ * inside Hedera's 15M per-transaction ceiling, and the limit is the ceiling itself rather
+ * than an estimate -- Hedera charges gas USED, not gas OFFERED, so a high limit costs
+ * nothing while a tight one costs the run. This previously ran on the estimator, which
+ * offered 5,343,980 for a 13-tranche grant and ran out having used 5,336,742: 99.86% of
+ * the limit, reverting with empty revert data and no explanation.
+ */
+const FUND_BATCH = 8;
+const FUND_GAS = { gasLimit: 15_000_000n };
+
 function step(n: string, msg: string) {
   console.log(`\n\x1b[36m[${n}]\x1b[0m ${msg}`);
 }
@@ -164,9 +178,9 @@ async function main() {
     }
 
     const grantId = await controller.nextGrantId();
-    await (await controller.createGrant(employee, PARTITION, amounts, dates)).wait();
+    await (await controller.createGrant(employee, PARTITION, amounts, dates, FUND_GAS)).wait();
     for (;;) {
-      await (await controller.fundTranches(grantId, 40)).wait();
+      await (await controller.fundTranches(grantId, FUND_BATCH, FUND_GAS)).wait();
       if (Number((await controller.getGrant(grantId)).status) === 2) break;
     }
     const total = amounts.reduce((a, b) => a + b, 0);

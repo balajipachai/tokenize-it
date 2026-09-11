@@ -13,15 +13,16 @@
     "creationTxHash": null
   },
   "esopVestingController": {
-    "address": "0x7738f758679bbe8729A01C0313ae3052b21D683d",
+    "address": "0xbCd6318cF45f470B845eBfb292a05212150ce065",
     "contractIdentifier": "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
-    "creationTxHash": "0xe98d7bb61c1f1703342f83a9a79c5a9bfd81da4daeb6c41640c290b59e499226",
+    "creationTxHash": null,
     "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
     "disputeWindowSeconds": 180,
     "demoArbiter": {
-      "address": "0x86a602f02918628C7349fA68EcdE572d7aABcF86",
+      "address": "0x330eD690E9535648b5e6b5448f80Dbc3cc2Bbaa5",
       "note": "2-of-N stand-in so the appeal path can be demonstrated. NOT a Safe; replace in production."
-    }
+    },
+    "note": "Adopted rather than redeployed: the run that created it moved the whole option pool across from the previous controller and then failed funding a grant on gas. Redeploying again would have moved the pool a third time for no reason."
   },
   "grants": [
     {
@@ -29,27 +30,28 @@
       "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
       "totalAmount": 2400,
       "trancheCount": 13,
-      "cliffAt": 1788974975,
-      "createdAt": "2026-09-09T17:27:53.996Z"
+      "createdAt": "2026-09-11T04:58:00.000Z",
+      "note": "Created by testnet:deploy-controller; recorded afterwards because that run failed at grant #2."
     },
     {
-      "grantId": 15,
-      "employee": "0xd8AE7480fa3e47B5756aaCE0812B88249daB7D51",
-      "totalAmount": 1000,
-      "trancheCount": 4,
-      "cliffAt": 1789045684,
-      "createdAt": "2026-09-10T13:03:21.170Z"
+      "grantId": 3,
+      "employee": "0x0f41C8D3A8DD40e948a58eb8bd085Fb3cd9Cc952",
+      "totalAmount": 2400,
+      "trancheCount": 13,
+      "cliffAt": 1789103313,
+      "createdAt": "2026-09-11T05:06:48.383Z"
     }
   ],
   "previousControllers": [
     "0xe630d8fa035A99FB1e2ac51Df790059674313AE3",
-    "0x7b82403588e00c46B6e8E0F3274062c07765c346"
+    "0x7b82403588e00c46B6e8E0F3274062c07765c346",
+    "0x7738f758679bbe8729A01C0313ae3052b21D683d"
   ],
   "lending": {
     "pool": {
-      "address": "0xB66844b213f42d682608452E306d3663C2a46d26",
+      "address": "0x1c1885A672c39EEA505E75B83508D78574f7Ae2C",
       "contractIdentifier": "contracts/tokenize-it/lending/ESOPLendingPool.sol:ESOPLendingPool",
-      "creationTxHash": "0x03fd412e9172ee74ac23dbef8b584bdcc669e09f06e7b4f721980957e83b94fe",
+      "creationTxHash": "0x286dc8b118a3d54095a3d0dba469487c242e763308ea53f1fc96cfcca8a91d1d",
       "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94"
     },
     "navOracle": {
@@ -69,22 +71,22 @@
       "address": "0xb632a7e7e02d76c0Ce99d9C62c7a2d1B5F92B6B5",
       "source": "Chainlink USDC/USD on Hedera testnet"
     },
-    "deployedAt": "2026-09-10T11:45:20.005Z"
+    "deployedAt": "2026-09-11T04:53:36.330Z"
   },
   "relayer": {
     "address": "0x534D3B33113cF1435d63969059F593bb12e04069",
-    "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only — it cannot move tokens without a holder signature."
+    "role": "Submits employees' signed holds and repayments so they never need gas. Holds the partition participant role only \u2014 it cannot move tokens without a holder signature."
   },
   "payroll": {
-    "address": "0x30aE1594B8046ac193dBa41D89eeEe8Aa01400f3",
+    "address": "0x23608aC73e238F95a378233318E526EE6059e013",
     "contractIdentifier": "contracts/tokenize-it/payroll/PayrollDisburser.sol:PayrollDisburser",
-    "creationTxHash": "0x5e4983a3100881252effad6397ba71db92f4d2df79d30da668e02bc9cd7678e6",
+    "creationTxHash": "0x8aebbe913796f117c500729e41178593c50afa0bb8b24cfa208e0fde969f79af",
     "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
     "treasury": "0x51845f648259F061200AF477901316548cB7150A",
     "stablecoin": "0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9",
     "payoutRelayer": "0x534D3B33113cF1435d63969059F593bb12e04069",
     "note": "Treasury becomes a Privy server wallet with a key quorum; setTreasury handles that handover.",
-    "deployedAt": "2026-09-10T11:46:00.210Z",
+    "deployedAt": "2026-09-11T04:54:06.651Z",
     "org": {
       "treasuryWalletId": "si3qjltd5bau0v7nuloqufsx",
       "treasuryAddress": "0x51845f648259F061200AF477901316548cB7150A",
