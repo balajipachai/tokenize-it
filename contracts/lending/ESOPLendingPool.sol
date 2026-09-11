@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.28;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {IAtsEsop, IHoldTypes} from "../interfaces/IAtsEsop.sol";
 import {IAggregatorV3} from "../interfaces/IAggregatorV3.sol";
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
@@ -27,7 +28,11 @@ import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
  *      This is the Aave Horizon shape — permissioned collateral, permissionless stablecoin
  *      — with the custody leg removed because ERC-1400 holds make it unnecessary.
  */
-contract ESOPLendingPool {
+contract ESOPLendingPool is ReentrancyGuard {
+    // CEI ordering is the primary defence throughout; OpenZeppelin's `nonReentrant` is the
+    // second layer, and it earns its place here -- the pool calls out to both a third-party
+    // stablecoin and an ATS diamond that delegatecalls to ~100 facets.
+
     // ------------------------------------------------------------------ types
 
     enum LoanStatus {
@@ -52,6 +57,9 @@ contract ESOPLendingPool {
 
     // ----------------------------------------------------------------- config
 
+    /// @dev One hundred percent, in basis points.
+    uint16 private constant BPS = 10_000;
+
     IAtsEsop public immutable esop;
     IERC20Minimal public immutable stable;
     uint8 private immutable _stableDecimals;
@@ -59,9 +67,18 @@ contract ESOPLendingPool {
     address public admin;
     address public pendingAdmin;
 
-    /// @notice Price per ESOP share. Chainlink-shaped, so a listed issuer swaps in a real feed.
+    /**
+     * @notice Price per ESOP share.
+     * @dev In this deployment this is `EsopNavOracle`, which is Chainlink-SHAPED but not a
+     *      Chainlink feed: a valuation agent publishes the appraisal by hand. Only the
+     *      interface is shared, so a listed issuer can swap in a real feed unchanged.
+     */
     IAggregatorV3 public navFeed;
-    /// @notice Stablecoin peg feed. A depeg silently inflates what a borrower actually owes.
+
+    /**
+     * @notice Stablecoin peg feed. A depeg silently inflates what a borrower actually owes.
+     * @dev This one IS a real Chainlink feed (USDC/USD on Hedera testnet), unlike `navFeed`.
+     */
     IAggregatorV3 public stableFeed;
 
     /// @dev Per-feed, because heartbeats differ wildly. A share appraisal is annual by
@@ -140,7 +157,6 @@ contract ESOPLendingPool {
     error StablecoinDepegged(int256 answer);
     error InsufficientLiquidity(uint256 available, uint256 requested);
     error Healthy(uint256 ltvBps, uint16 threshold);
-    error Reentrancy();
     error TransferFailed();
     error TokenCallFailed();
     error NoRequestedAmount();
@@ -148,25 +164,37 @@ contract ESOPLendingPool {
     error HoldExpiredUseReclaim(uint64 expiry);
     /// @dev This asset has its own way out; using the generic one would duplicate it.
     error NotRescuable(address token);
-
-    uint256 private _entered;
+    /// @dev A risk parameter that would brick the pool or make every new loan liquidatable.
+    error InvalidRiskParams();
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
         _;
     }
 
-    /// @dev CEI ordering is the primary defence throughout; this is the second layer.
-    modifier nonReentrant() {
-        if (_entered == 1) revert Reentrancy();
-        _entered = 1;
-        _;
-        _entered = 0;
-    }
-
     /// @dev One live loan per hold. Without this, the same collateral could back several.
     mapping(bytes32 => bool) private _pledged;
 
+    /**
+     * @notice Deploys a pool lending one stablecoin against one ESOP token.
+     *
+     * @dev Both tokens are immutable. Pairing them at construction rather than configuring
+     *      them later is what lets a reader reason about the pool at all: there is exactly
+     *      one collateral asset and exactly one cash asset, and neither can be swapped out
+     *      from under an open loan.
+     *
+     *      Deployment is not finished when this returns. The pool must then be onboarded on
+     *      the ESOP token as a holder (KYC plus allowlist, because a liquidation transfers
+     *      shares TO it and compliance applies to contracts too), granted the partition's
+     *      participant role if `pledgeAndBorrow` is to be used, pointed at its feeds via
+     *      `setFeeds`, and funded via `addLiquidity`. See `scripts/testnet-deploy-lending.ts`.
+     *
+     * @param _esop           The ATS security token accepted as collateral.
+     * @param _stable         The stablecoin lent out and repaid.
+     * @param stableDecimals_ Cached rather than read, because not every stablecoin exposes
+     *                        `decimals()` and a wrong value here silently misprices every loan.
+     * @param _admin          First admin. Sets risk parameters and feeds, and can withdraw liquidity.
+     */
     constructor(IAtsEsop _esop, IERC20Minimal _stable, uint8 stableDecimals_, address _admin) {
         if (address(_esop) == address(0) || address(_stable) == address(0) || _admin == address(0)) {
             revert ZeroAddress();
@@ -176,27 +204,52 @@ contract ESOPLendingPool {
         _stableDecimals = stableDecimals_;
         admin = _admin;
 
-        maxLtvBps = 2_500; // 25% — an illiquid, appraisal-priced asset does not support more
-        liquidationLtvBps = 4_000;
-        aprBps = 800;
-        minTerm = 7 days;
-        maxTerm = 730 days;
-        liquidationGrace = 3 days;
+        // Through the same validation the setter uses, so the shipped defaults cannot quietly
+        // drift outside the invariant every later change is held to.
+        _setRiskParams(
+            2_500, // 25% — an illiquid, appraisal-priced asset does not support more
+            4_000,
+            800,
+            7 days,
+            730 days,
+            3 days
+        );
         navMaxAge = 400 days; // an appraisal is annual; "stale" is its normal condition
         stableMaxAge = 2 days;
 
         emit AdminTransferred(address(0), _admin);
-        emit RiskParamsSet(maxLtvBps, liquidationLtvBps, aprBps, minTerm, maxTerm);
     }
 
     // ------------------------------------------------------------------ admin
 
+    /**
+     * @notice Points the pool at its price feeds and sets how stale each may be.
+     *
+     * @dev Both addresses are required. A zero feed is not a "disabled" state — every
+     *      valuation reads both, so setting one to zero would revert `collateralValue` and
+     *      with it every borrow, every liquidation and the borrowable figure the portal
+     *      shows. The pool would look alive and be unusable.
+     *
+     *      Staleness bounds are PER FEED and both must be non-zero. A zero bound means
+     *      "nothing is ever fresh enough" and bricks the pool just as thoroughly. They differ
+     *      by roughly two orders of magnitude on purpose: a share appraisal is annual by
+     *      nature, so being months old is its normal condition, while a market feed that has
+     *      not moved in a day is broken. One shared constant would either wave through a
+     *      stale market price or refuse a perfectly good valuation.
+     *
+     * @param _navFeed      Price per ESOP share. Chainlink-shaped, so a listed issuer swaps in a real feed.
+     * @param _stableFeed   Stablecoin peg feed. A depeg silently inflates what a borrower owes.
+     * @param _navMaxAge    Seconds before the NAV answer is refused. Expect hundreds of days.
+     * @param _stableMaxAge Seconds before the peg answer is refused. Expect a day or two.
+     */
     function setFeeds(
         IAggregatorV3 _navFeed,
         IAggregatorV3 _stableFeed,
         uint64 _navMaxAge,
         uint64 _stableMaxAge
     ) external onlyAdmin {
+        if (address(_navFeed) == address(0) || address(_stableFeed) == address(0)) revert ZeroAddress();
+        if (_navMaxAge == 0 || _stableMaxAge == 0) revert ZeroAmount();
         navFeed = _navFeed;
         stableFeed = _stableFeed;
         navMaxAge = _navMaxAge;
@@ -204,6 +257,25 @@ contract ESOPLendingPool {
         emit FeedsSet(address(_navFeed), address(_stableFeed), _navMaxAge, _stableMaxAge);
     }
 
+    /**
+     * @notice Sets the lending ceiling, the liquidation threshold, the rate and the term window.
+     *
+     * @dev Every parameter here is bounded rather than trusted. The admin is the issuer, not an
+     *      adversary, but a fat-fingered zero reprices or bricks every outstanding loan in one
+     *      call, and there is no undo once a liquidator has acted on it.
+     *
+     *      Changes apply to FUTURE loans only for the rate — `aprBps` is copied into each loan
+     *      at open — but the LTV threshold is read live, so raising it can make existing
+     *      positions liquidatable immediately. That is deliberate: risk parameters that could
+     *      not respond to a collapse in the share price would not be risk parameters.
+     *
+     * @param _maxLtvBps         Most that may be borrowed against collateral value. Non-zero, under 100%.
+     * @param _liquidationLtvBps Seizure threshold. Must sit strictly above `_maxLtvBps`.
+     * @param _aprBps            Simple annual rate copied into new loans. Capped at 100%.
+     * @param _minTerm           Shortest hold expiry accepted as collateral.
+     * @param _maxTerm           Longest hold expiry accepted. ATS caps holds well below this in practice.
+     * @param _liquidationGrace  How long before hold expiry a loan matures. Must be under `_minTerm`.
+     */
     function setRiskParams(
         uint16 _maxLtvBps,
         uint16 _liquidationLtvBps,
@@ -212,8 +284,43 @@ contract ESOPLendingPool {
         uint64 _maxTerm,
         uint64 _liquidationGrace
     ) external onlyAdmin {
+        _setRiskParams(_maxLtvBps, _liquidationLtvBps, _aprBps, _minTerm, _maxTerm, _liquidationGrace);
+    }
+
+    /// @dev Shared by the constructor and the setter so both are held to the same invariant.
+    function _setRiskParams(
+        uint16 _maxLtvBps,
+        uint16 _liquidationLtvBps,
+        uint16 _aprBps,
+        uint64 _minTerm,
+        uint64 _maxTerm,
+        uint64 _liquidationGrace
+    ) private {
+        // Every one of these can brick or endanger the pool if left unchecked, and an admin
+        // typo is a far likelier cause than malice — which is exactly why they are bounded
+        // here rather than trusted to the caller.
+
+        // A zero ceiling means nobody can ever borrow; a ceiling of 100% or more means a loan
+        // is underwater the instant it opens.
+        if (_maxLtvBps == 0 || _maxLtvBps >= BPS) revert InvalidRiskParams();
+
+        // Liquidation must sit ABOVE the borrowing ceiling. Equal or below and every new loan
+        // is immediately liquidatable, which would let anyone seize collateral from a
+        // borrower who did nothing wrong.
+        if (_liquidationLtvBps <= _maxLtvBps || _liquidationLtvBps > BPS) revert InvalidRiskParams();
+
+        // A rate above 100% a year is not a lending product. Zero is allowed — an interest-free
+        // employee facility is a legitimate thing for an issuer to offer.
+        if (_aprBps > BPS) revert InvalidRiskParams();
+
+        // A term window that is empty or inverted accepts no hold at all.
+        if (_minTerm == 0 || _maxTerm < _minTerm) revert InvalidRiskParams();
+
         // A grace longer than the shortest term would put maturity before the loan opened.
-        if (_liquidationGrace >= _minTerm) revert GraceExceedsMinTerm(_liquidationGrace, _minTerm);
+        if (_liquidationGrace == 0 || _liquidationGrace >= _minTerm) {
+            revert GraceExceedsMinTerm(_liquidationGrace, _minTerm);
+        }
+
         maxLtvBps = _maxLtvBps;
         liquidationLtvBps = _liquidationLtvBps;
         aprBps = _aprBps;
@@ -223,12 +330,39 @@ contract ESOPLendingPool {
         emit RiskParamsSet(_maxLtvBps, _liquidationLtvBps, _aprBps, _minTerm, _maxTerm);
     }
 
+    /**
+     * @notice Deposits stablecoin for the pool to lend out.
+     *
+     * @dev Permissionless, and deliberately not a share-issuing deposit: there is no LP token
+     *      and no claim on interest. Funding here is a contribution to a facility the issuer
+     *      operates, and only `admin` can take stablecoin back out. That asymmetry is the
+     *      honest description of what this is — an employer-run employee lending facility,
+     *      not a yield venue — and pretending otherwise would invite deposits under a promise
+     *      the contract does not make.
+     *
+     *      Caller must have approved the pool for `amount` first.
+     */
     function addLiquidity(uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
         if (!stable.transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
         emit LiquidityAdded(msg.sender, amount);
     }
 
+    /**
+     * @notice Withdraws lendable stablecoin from the pool.
+     *
+     * @dev Deliberately NOT capped at some "unused" figure, because there is no such figure
+     *      to compute: outstanding loans are owed in the future and the pool's balance is
+     *      what is here now. An admin can drain the pool, and that is a trust assumption
+     *      stated rather than engineered around — an employer who wanted to strand its own
+     *      employees has simpler ways.
+     *
+     *      What it cannot touch is collateral. Pledged equity is not in this contract at all;
+     *      it sits in the borrower's wallet under a hold. This moves cash only.
+     *
+     * @param to     Recipient of the stablecoin.
+     * @param amount Amount in the stablecoin's own decimals. Reverts if the pool is short.
+     */
     function removeLiquidity(address to, uint256 amount) external onlyAdmin nonReentrant {
         if (to == address(0)) revert ZeroAddress();
         emit LiquidityRemoved(to, amount);
@@ -291,12 +425,23 @@ contract ESOPLendingPool {
         if (!IERC20Minimal(token).transfer(to, amount)) revert TransferFailed();
     }
 
+    /**
+     * @notice Step one of a two-step admin handover. Nothing changes until `acceptAdmin`.
+     * @dev Two-step because this role sets the liquidation threshold and can withdraw the
+     *      pool's cash. A one-step transfer to a typo'd address would leave the pool with
+     *      unchangeable risk parameters and unrecoverable liquidity.
+     */
     function transferAdmin(address newAdmin) external onlyAdmin {
         if (newAdmin == address(0)) revert ZeroAddress();
         pendingAdmin = newAdmin;
         emit AdminTransferStarted(admin, newAdmin);
     }
 
+    /**
+     * @notice Step two of the handover: the incoming admin claims the role.
+     * @dev Requiring the new admin to send this transaction is what proves the key is live
+     *      before the old admin loses it.
+     */
     function acceptAdmin() external {
         if (msg.sender != pendingAdmin) revert NotPendingAdmin();
         emit AdminTransferred(admin, pendingAdmin);
@@ -673,7 +818,20 @@ contract ESOPLendingPool {
             ((10 ** uint256(navDecimals)) * uint256(peg));
     }
 
-    /// @notice Current loan-to-value in basis points. Above `liquidationLtvBps` it is seizable.
+    /**
+     * @notice Current loan-to-value in basis points. Above `liquidationLtvBps` it is seizable.
+     *
+     * @dev Two return values need reading carefully. Zero means the loan is not active — NOT
+     *      that it is perfectly healthy — so check `status` before treating a low number as
+     *      good news. `type(uint256).max` means the collateral currently values at nothing,
+     *      which is a broken or unpublished feed far more often than a genuinely worthless
+     *      grant, and it makes the loan liquidatable, so a UI should say "price unavailable"
+     *      rather than render an infinite bar.
+     *
+     *      Recomputed live from the hold's CURRENT amount and the CURRENT price, never from
+     *      anything stored at borrow time. A stock split doubles the shares under the hold,
+     *      and reading a stored figure would under-collateralise the loan exactly then.
+     */
     function ltvOf(uint256 loanId) external view returns (uint256) {
         Loan storage loan = _loans[loanId];
         if (loan.status != LoanStatus.Active) return 0;
@@ -683,14 +841,31 @@ contract ESOPLendingPool {
         return (debtOf(loanId) * 10_000) / value;
     }
 
+    /**
+     * @notice The whole loan record: borrower, collateral hold, principal, repayments, dates.
+     * @dev Returns a zeroed struct with `status == None` for an unknown id rather than
+     *      reverting. `principal` and `repaid` are in the stablecoin's decimals; the accrued
+     *      interest is not stored, so read `debtOf` for what is actually owed today.
+     */
     function getLoan(uint256 loanId) external view returns (Loan memory) {
         return _loans[loanId];
     }
 
+    /**
+     * @notice Every loan id this borrower has ever opened, including repaid and liquidated ones.
+     * @dev Append-only, so it doubles as a borrowing history. A UI listing live positions has
+     *      to filter on `status`, not assume the array holds only open loans.
+     */
     function loansOf(address borrower) external view returns (uint256[] memory) {
         return _loansOf[borrower];
     }
 
+    /**
+     * @notice Stablecoin on hand and lendable right now.
+     * @dev The pool's actual balance, not a computed figure — it does not net out what
+     *      outstanding loans will repay later, and it does not reserve anything. A borrow
+     *      larger than this reverts with `InsufficientLiquidity`.
+     */
     function available() external view returns (uint256) {
         return stable.balanceOf(address(this));
     }

@@ -9,10 +9,18 @@ pragma solidity 0.8.28;
  *      rather than a rewrite.
  */
 interface IAggregatorV3 {
+    /// @dev Decimal places of `answer`. Chainlink USD feeds use 8; never assume 18.
     function decimals() external view returns (uint8);
 
+    /// @notice Human-readable pair name, e.g. "USDC / USD".
     function description() external view returns (string memory);
 
+    /**
+     * @notice The most recent answer and when it was written.
+     * @dev Consumers must treat `updatedAt` as load-bearing and refuse an answer older than
+     *      their own bound — a feed that has stopped updating keeps returning its last price
+     *      quite happily. `ESOPLendingPool` carries a separate bound per feed for this.
+     */
     function latestRoundData()
         external
         view

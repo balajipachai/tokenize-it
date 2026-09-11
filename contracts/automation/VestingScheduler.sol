@@ -32,6 +32,18 @@ import {IHederaScheduleService} from "../interfaces/IHederaScheduleService.sol";
  *
  *      HIP-423 caps a schedule at 62 days, so a four-year schedule cannot be armed up front.
  *      Arm the next tranche and roll forward on each release.
+ *
+ *      STATUS ON TESTNET, stated plainly so nobody debugs this for an afternoon: `arm`
+ *      currently FAILS on Hedera testnet. `scheduleCall` returns INVALID_CONTRACT_ID for
+ *      every target we tried, from an EOA and from contract code alike, while
+ *      `hasScheduleCapacity` on the same system contract answers true — so the service is
+ *      reachable and the scheduling call itself is not yet usable there. Nothing in this
+ *      contract is wrong as far as we can tell; the network side is not ready.
+ *
+ *      This costs nothing, which was the design goal. Because release is permissionless and
+ *      the lock's expiry is the real source of truth, the keeper in
+ *      `scripts/testnet-vesting-keeper.ts` delivers the same outcome, and vesting is correct
+ *      either way. Automation here is convenience, never correctness.
  */
 contract VestingScheduler {
     /// @notice Hedera's Schedule Service, native at address 363. It has no EVM bytecode.

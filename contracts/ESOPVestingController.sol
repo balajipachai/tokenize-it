@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.28;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {IAtsEsop, IMultisig} from "./interfaces/IAtsEsop.sol";
 
 /**
@@ -21,7 +22,12 @@ import {IAtsEsop, IMultisig} from "./interfaces/IAtsEsop.sol";
  *      testnet, against a 15M per-transaction ceiling, so tranches cannot all be locked in one
  *      call. `createGrant` records the schedule; `fundTranches` locks it in batches.
  */
-contract ESOPVestingController {
+contract ESOPVestingController is ReentrancyGuard {
+    // CEI ordering is the primary defence in every function below; OpenZeppelin's
+    // `nonReentrant` is the second, independent layer. Worth stating why both: the ATS token is
+    // a diamond that delegatecalls to ~100 facets, so "the callee is trusted" is a weaker
+    // statement here than it looks.
+
     enum GrantStatus {
         None,
         Funding,
@@ -96,8 +102,6 @@ contract ESOPVestingController {
     ///         seconds where a real deployment would use weeks.
     uint64 public disputeWindow;
 
-    uint256 private _reentrancyStatus;
-
     uint256 public nextGrantId = 1;
     mapping(uint256 => Grant) private _grants;
     // slither-disable-next-line uninitialized-state
@@ -145,7 +149,6 @@ contract ESOPVestingController {
     error NotGrantAdmin();
     error NotPendingAdmin();
     error GrantNotTerminated(uint256 grantId);
-    error Reentrancy();
     error TokenCallFailed();
     error NotArbiter();
     error NotDisputeRaiser();
@@ -167,16 +170,20 @@ contract ESOPVestingController {
         _;
     }
 
-    /// @dev CEI ordering is the primary defence in every function below; this is the second,
-    ///      independent layer. The ATS token is a diamond that delegatecalls to ~100 facets, so
-    ///      "the callee is trusted" is a weaker statement here than it looks.
-    modifier nonReentrant() {
-        if (_reentrancyStatus == 1) revert Reentrancy();
-        _reentrancyStatus = 1;
-        _;
-        _reentrancyStatus = 0;
-    }
-
+    /**
+     * @notice Binds the controller to one ESOP token and names its first admin.
+     *
+     * @dev The controller is useless until the token grants it `ROLE_LOCKER` and
+     *      `ROLE_CONTROLLER` — it locks tranches and force-releases them on clawback, and
+     *      neither is possible without those. Deployment therefore has two halves, and the
+     *      second happens on the token, not here.
+     *
+     * @param _token         The ATS security token these grants are denominated in. Immutable.
+     * @param _admin         First admin, and implicitly the first grant admin.
+     * @param _disputeWindow Seconds a terminated employee has to appeal before clawback may
+     *                       proceed. Settable afterwards so a demo can use seconds where a
+     *                       real deployment would use weeks.
+     */
     constructor(IAtsEsop _token, address _admin, uint64 _disputeWindow) {
         if (address(_token) == address(0) || _admin == address(0)) revert ZeroAddress();
         token = _token;
@@ -213,17 +220,38 @@ contract ESOPVestingController {
         emit ArbiterSet(account, enabled);
     }
 
+    /**
+     * @notice Appoints an address that may raise a dispute on an employee's behalf.
+     * @dev Employees in this system never hold HBAR — a relayer pays their fees. Without
+     *      this, the appeal right would exist on paper and be unreachable for exactly the
+     *      person most likely to need it: someone just terminated, with no funded wallet.
+     *      A relayer can only raise, never resolve; the verdict stays with an arbiter.
+     */
     function setDisputeRelayer(address account, bool enabled) external onlyAdmin {
         if (account == address(0)) revert ZeroAddress();
         isDisputeRelayer[account] = enabled;
         emit DisputeRelayerSet(account, enabled);
     }
 
+    /**
+     * @notice Sets how long a terminated employee has to appeal before clawback may proceed.
+     * @dev Applies to terminations from here on. Grants already terminated keep the deadline
+     *      stamped at termination, so shortening this cannot retroactively close somebody's
+     *      open appeal window — which is the property that makes the window mean anything.
+     *      Zero is allowed and disables the wait entirely.
+     */
     function setDisputeWindow(uint64 seconds_) external onlyAdmin {
         disputeWindow = seconds_;
         emit DisputeWindowSet(seconds_);
     }
 
+    /**
+     * @notice Appoints or removes an HR operator who may issue, fund and terminate grants.
+     * @dev Deliberately a separate, weaker role than `admin`: HR does day-to-day equity
+     *      administration, while only `admin` can change who HR is, appoint arbiters, or
+     *      move the dispute window. Every HR action records the acting address on-chain, so
+     *      this roster is also the attribution list.
+     */
     function setGrantAdmin(address account, bool enabled) external onlyAdmin {
         if (account == address(0)) revert ZeroAddress();
         isGrantAdmin[account] = enabled;
@@ -239,6 +267,11 @@ contract ESOPVestingController {
         emit AdminTransferStarted(admin, newAdmin);
     }
 
+    /**
+     * @notice Step two of the handover: the incoming admin claims the role.
+     * @dev Only the address named by `transferAdmin` can call this, which is what proves the
+     *      new admin actually controls the key before the old one loses it.
+     */
     function acceptAdmin() external {
         if (msg.sender != pendingAdmin) revert NotPendingAdmin();
         emit AdminTransferred(admin, pendingAdmin);
@@ -565,7 +598,23 @@ contract ESOPVestingController {
 
     // --------------------------------------------------------------- treasury
 
-    /// @notice Returns unallocated pool tokens from this contract to the treasury.
+    /**
+     * @notice Returns unallocated pool tokens from this contract to the treasury.
+     *
+     * @dev Forfeited options land here rather than being burned, so over time this contract
+     *      accumulates a grantable pool. Most of the time that is what you want — the next
+     *      hire is granted from it. This is the way out when the pool is being wound down,
+     *      or when a balance arrived here that was never meant to be granted at all.
+     *
+     *      It moves only what this contract holds FREE. Tokens still locked against a live
+     *      grant are unreachable from here by construction, so this cannot be used to strip
+     *      an employee's unvested equity — that path is `clawback`, and it has a dispute
+     *      window in front of it.
+     *
+     * @param partition Which partition to move from.
+     * @param to        Recipient. Must be KYC'd and allowlisted like any other holder.
+     * @param amount    Tokens to return, in the token's own decimals.
+     */
     function returnToTreasury(
         bytes32 partition,
         address to,
@@ -580,19 +629,48 @@ contract ESOPVestingController {
 
     // ------------------------------------------------------------------ views
 
+    /**
+     * @notice The full grant record, including status, leaver type and dispute state.
+     * @dev Returns a zeroed struct for an unknown id rather than reverting, which is the
+     *      convention every view here follows. Consumers decoding this MUST decode the whole
+     *      tuple: the console once shipped an ABI that stopped at `leaver`, and because every
+     *      preceding field is fixed-width it decoded cleanly and silently dropped the dispute
+     *      fields, making a working clawback button do nothing.
+     */
     function getGrant(uint256 grantId) external view returns (Grant memory) {
         return _grants[grantId];
     }
 
+    /**
+     * @notice Every tranche of a grant, in vesting order, with its lock id and current state.
+     * @dev Unbounded by design — a grant is at most a few dozen tranches (a 4-year monthly
+     *      schedule is 37) and a caller wants the whole schedule to draw a timeline. This is
+     *      a view, so the cost lands on the RPC node rather than on a transaction.
+     */
     function getTranches(uint256 grantId) external view returns (Tranche[] memory) {
         return _tranches[grantId];
     }
 
+    /**
+     * @notice Every grant id belonging to one employee.
+     * @dev An employee can hold several — a new-hire grant plus a refresh is the normal case.
+     *      Ids only ever append, so this array never shrinks, even after a grant is fully
+     *      vested or terminated.
+     */
     function grantsOf(address employee) external view returns (uint256[] memory) {
         return _grantsOf[employee];
     }
 
-    /// @notice Amount that has vested, whether or not it has been released yet.
+    /**
+     * @notice Amount that has vested, whether or not it has been released yet.
+     * @dev Vesting and release are different events: a tranche vests when its date passes,
+     *      and becomes spendable only when someone calls `release` to unlock it. This counts
+     *      the first, so it is what an employee thinks of as "mine", not what they can move
+     *      today. Clawed-back tranches are excluded; see `clawedBackAmount` to reconcile.
+     *
+     *      For a terminated grant the cutoff is the leaving date, not now — so this stops
+     *      growing the moment someone leaves, which is the whole point of recording it.
+     */
     function vestedAmount(uint256 grantId) external view returns (uint256 amount) {
         Grant storage g = _grants[grantId];
         uint64 cutoff = _vestingCutoff(g);
@@ -603,7 +681,12 @@ contract ESOPVestingController {
         }
     }
 
-    /// @notice Amount still subject to forfeiture.
+    /**
+     * @notice Amount still subject to forfeiture.
+     * @dev The mirror of `vestedAmount` against the same cutoff. For a live grant this
+     *      shrinks as tranches vest; for a terminated one it is frozen at what was unvested
+     *      on the leaving date, which is exactly the quantity `clawback` may take.
+     */
     function unvestedAmount(uint256 grantId) external view returns (uint256 amount) {
         Grant storage g = _grants[grantId];
         uint64 cutoff = _vestingCutoff(g);
@@ -628,7 +711,12 @@ contract ESOPVestingController {
         }
     }
 
-    /// @notice Timestamp of the next tranche to vest, or 0 if fully vested or terminated.
+    /**
+     * @notice Timestamp of the next tranche to vest, or 0 if fully vested or terminated.
+     * @dev Returns zero for a terminated grant because nothing further will vest, not because
+     *      the schedule ran out. Callers rendering a countdown should treat zero as "no next
+     *      date" and read `status` to say which of the two reasons applies.
+     */
     function nextVestAt(uint256 grantId) external view returns (uint64) {
         Grant storage g = _grants[grantId];
         if (g.status == GrantStatus.Terminated) return 0;
@@ -639,6 +727,12 @@ contract ESOPVestingController {
         return 0;
     }
 
+    /**
+     * @notice How many tranches have vested but have not yet been unlocked.
+     * @dev This is the employee's "Claim" button in a number: anything above zero means
+     *      `release` has work to do. It exists because vesting is a date passing, while
+     *      unlocking is a transaction somebody has to send — nothing happens on its own.
+     */
     function pendingTranches(uint256 grantId) external view returns (uint256 count) {
         Grant storage g = _grants[grantId];
         uint64 cutoff = _vestingCutoff(g);

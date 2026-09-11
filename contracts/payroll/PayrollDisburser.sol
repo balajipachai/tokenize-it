@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.28;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {IAtsEsop} from "../interfaces/IAtsEsop.sol";
 import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
 
@@ -39,7 +40,10 @@ import {IERC20Minimal} from "../interfaces/IERC20Minimal.sol";
  *      inside the compliance perimeter, and that check lives in bytecode rather than in a
  *      dashboard setting somebody can widen.
  */
-contract PayrollDisburser {
+contract PayrollDisburser is ReentrancyGuard {
+    // CEI ordering is the primary defence below; OpenZeppelin's `nonReentrant` is the second
+    // layer, because the stablecoin is a third-party contract we do not control.
+
     // ----------------------------------------------------------------- config
 
     /// @notice The stablecoin salaries are paid in.
@@ -91,23 +95,30 @@ contract PayrollDisburser {
     error NotAllowlisted(address employee);
     error NothingAccrued(address employee);
     error TransferFailed();
-    error Reentrancy();
-
-    uint256 private _entered;
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
         _;
     }
 
-    /// @dev CEI ordering is the primary defence below; this is the second layer.
-    modifier nonReentrant() {
-        if (_entered == 1) revert Reentrancy();
-        _entered = 1;
-        _;
-        _entered = 0;
-    }
-
+    /**
+     * @notice Deploys the disburser against one stablecoin, one ESOP token and one treasury.
+     *
+     * @dev The ESOP token is here for its allowlist, not its equity. `fundRun` checks
+     *      `isInControlList` for every recipient, which ties payroll to the same compliance
+     *      roster that governs share transfers: onboarding someone once makes them both a
+     *      valid shareholder and a payable employee, and suspending them stops both.
+     *
+     *      `treasury` is expected to be a Privy quorum-owned wallet rather than a single key,
+     *      so that no one officer can run payroll alone. Nothing here enforces that — a
+     *      contract cannot tell a quorum wallet from an EOA — which is why the quorum and its
+     *      policy live in Privy and this contract only names the address.
+     *
+     * @param _stable   Stablecoin salaries are paid in. The same one the lending pool lends.
+     * @param _esop     ESOP token whose allowlist decides who may be paid.
+     * @param _treasury Address permitted to fund runs. Rotatable via `setTreasury`.
+     * @param _admin    First admin. Appoints relayers and rotates the treasury.
+     */
     constructor(IERC20Minimal _stable, IAtsEsop _esop, address _treasury, address _admin) {
         if (address(_stable) == address(0) || address(_esop) == address(0)) revert ZeroAddress();
         if (_treasury == address(0) || _admin == address(0)) revert ZeroAddress();
@@ -120,24 +131,47 @@ contract PayrollDisburser {
 
     // ------------------------------------------------------------------ admin
 
+    /**
+     * @notice Points the contract at a new funding wallet.
+     *
+     * @dev The rotation path when officers change or a treasury key is suspected. Takes
+     *      effect immediately and the old treasury loses the ability to run payroll in the
+     *      same transaction, which is the point — a rotation that left the previous wallet
+     *      able to pay people would not be a rotation.
+     *
+     *      Does not touch salary already accrued. Employees still collect what they earned
+     *      under the old treasury, from the balance already sitting here.
+     */
     function setTreasury(address newTreasury) external onlyAdmin {
         if (newTreasury == address(0)) revert ZeroAddress();
         treasury = newTreasury;
         emit TreasurySet(newTreasury);
     }
 
+    /**
+     * @notice Appoints or removes an address allowed to deliver salaries on employees' behalf.
+     * @dev A narrow power by construction: a relayer chooses WHEN someone is paid, never
+     *      whether, how much, or to whom — `_deliver` always sends to the employee. The worst
+     *      a rogue relayer can do is pay people their own money sooner than they asked.
+     */
     function setPayoutRelayer(address account, bool enabled) external onlyAdmin {
         if (account == address(0)) revert ZeroAddress();
         isPayoutRelayer[account] = enabled;
         emit PayoutRelayerSet(account, enabled);
     }
 
+    /**
+     * @notice Step one of a two-step admin handover. Nothing changes until `acceptAdmin`.
+     * @dev Two-step because this role can redirect the treasury. A one-step transfer to a
+     *      typo'd address would leave payroll permanently pointed at a wallet nobody holds.
+     */
     function transferAdmin(address newAdmin) external onlyAdmin {
         if (newAdmin == address(0)) revert ZeroAddress();
         pendingAdmin = newAdmin;
         emit AdminTransferStarted(admin, newAdmin);
     }
 
+    /// @notice Step two of the handover: the incoming admin claims the role.
     function acceptAdmin() external {
         if (msg.sender != pendingAdmin) revert NotPendingAdmin();
         emit AdminTransferred(admin, pendingAdmin);
@@ -195,7 +229,13 @@ contract PayrollDisburser {
         if (!stable.transferFrom(msg.sender, address(this), total)) revert TransferFailed();
     }
 
-    /// @notice Collects your own salary.
+    /**
+     * @notice Collects your own salary.
+     * @dev Pays the whole accrued balance; there is no partial withdrawal, because a salary
+     *      is not a position to manage. Reverts with `NothingAccrued` rather than paying zero,
+     *      so a UI can tell "already collected" from "a run silently failed".
+     * @return amount Stablecoin delivered, in the stablecoin's own decimals.
+     */
     function withdraw() external nonReentrant returns (uint256 amount) {
         return _deliver(msg.sender);
     }
@@ -237,7 +277,13 @@ contract PayrollDisburser {
         return balance > totalAccrued ? balance - totalAccrued : 0;
     }
 
-    /// @notice Whether every accrued salary could actually be paid right now.
+    /**
+     * @notice Whether every accrued salary could actually be paid right now.
+     * @dev True is the normal state and is not a promise about the future — `fundRun` pulls
+     *      cash in the same transaction that credits employees, so the only ways this goes
+     *      false are a token that takes a fee on transfer, or a balance leaving by some route
+     *      this contract does not control. Worth checking before a run rather than after.
+     */
     function isSolvent() external view returns (bool) {
         return stable.balanceOf(address(this)) >= totalAccrued;
     }

@@ -36,6 +36,12 @@ contract MockUSDC {
 
     mapping(address => uint256) public nonces;
 
+    /**
+     * @notice EIP-712 domain separator, recomputed on every call rather than cached.
+     * @dev Computed live so the separator stays correct if the chain id ever changes under
+     *      the contract. Caching it in the constructor is the usual optimisation and the
+     *      usual fork bug.
+     */
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return
             keccak256(
@@ -72,23 +78,37 @@ contract MockUSDC {
         emit Approval(owner, spender, value);
     }
 
+    /**
+     * @notice Mints to any address. Anyone may call this.
+     * @dev Unguarded ON PURPOSE, and the single clearest reason this contract must never
+     *      leave testnet: it exists so a demo or a test can conjure the cash leg without a
+     *      faucet. A real deployment points at genuine USDC and this contract is not used.
+     */
     function mint(address to, uint256 amount) external {
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
     }
 
+    /// @notice Standard ERC-20 approval. See `permit` for the gasless equivalent.
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
+    /// @notice Standard ERC-20 transfer. Reverts on insufficient balance; never returns false.
     function transfer(address to, uint256 amount) external returns (bool) {
         _move(msg.sender, to, amount);
         return true;
     }
 
+    /**
+     * @notice Standard ERC-20 transfer on someone else's behalf.
+     * @dev An allowance of `type(uint256).max` is treated as infinite and is not decremented,
+     *      matching USDC and most production tokens. The lending pool relies on this for its
+     *      own approval, so changing it would silently start consuming that allowance.
+     */
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) {

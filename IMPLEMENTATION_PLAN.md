@@ -484,6 +484,67 @@ pool's stablecoin backing as a stretch goal.
 
 Plain ERC-20, 6 decimals, faucet-mintable. Testnet only. Keep it boring.
 
+### 5.5 Review pass — what changed, and two things that were measured rather than assumed
+
+A read-through of the finished contracts raised six points. Four became changes; two were
+claims worth checking before acting on, and checking reversed one of them.
+
+**Changed.**
+
+1. **Hand-rolled `nonReentrant` → OpenZeppelin's `ReentrancyGuard`**, in all three contracts.
+   Ours used `0 → 1 → 0`, which writes a zero slot on every guarded call and then clears it
+   for a refund the 20%-of-transaction cap usually swallows. OZ warms the slot in its
+   constructor and moves `1 → 2 → 1`, paying the cheap non-zero write twice. Measured on an
+   identical body: **50,947 → 33,787 gas, a saving of 17,160 per call** (`tests/gasProbes.test.ts`).
+   ATS ships no competing `ReentrancyGuard`, so unlike `IAccessControl` there is no artifact-name
+   collision to work around.
+
+2. **`setFeeds` rejects zero.** Both feed addresses and both staleness bounds. A zero feed is
+   not a "disabled" state — every valuation reads both, so it would revert `collateralValue`
+   and with it every borrow, every liquidation and the borrowable figure the portal renders.
+   A zero staleness bound means "nothing is ever fresh enough" and bricks the pool the same way.
+
+3. **`setRiskParams` is bounded, not trusted.** It previously checked only the grace period,
+   which left `maxLtvBps = 0` (nobody can borrow again) and — the dangerous one —
+   `liquidationLtvBps ≤ maxLtvBps`, which makes every loan, including healthy open ones,
+   seizable by anyone the moment the transaction lands. Now: the ceiling is non-zero and under
+   100%, the liquidation threshold sits strictly above it, the term window is non-empty and
+   ordered, the grace is non-zero and shorter than the minimum term, and the APR is capped at
+   100%. Zero APR stays legal — an interest-free employee facility is a real issuer policy.
+   The constructor routes through the same private `_setRiskParams`, so the shipped defaults
+   cannot drift outside the invariant every later change is held to. Ten tests cover it.
+
+4. **`EsopNavOracle` says plainly that it is not Chainlink.** The `AggregatorV3` shape invites
+   the opposite assumption. It fetches nothing: an agent calls `publish` and that is the only
+   way the price ever moves. The *peg* feed in the pool is a genuine Chainlink feed on Hedera
+   testnet — one of the two is real and the other is published by hand, and the header of each
+   now states which. Also documented: `startedAt` and `answeredInRound` exist to satisfy the
+   interface, so the usual `answeredInRound < roundId` staleness idiom can never fire here and
+   `updatedAt` is the field that matters.
+
+**Measured.**
+
+5. **`unchecked { ++i; }` is obsolete here — do not add it.** The advice predates the compiler.
+   solc 0.8.22 began emitting the unchecked increment itself whenever it can prove the counter
+   cannot overflow, which is every well-formed loop in this repo. Probed on 0.8.28:
+
+   ```
+   n= 10  compiler 44816   hand-unchecked 44772   -44 gas
+   n= 50  compiler 49736   hand-unchecked 49692   -44 gas
+   ```
+
+   The delta is **constant at 44 gas** — a one-off difference in the function prologue, not a
+   per-iteration saving. If the compiler were still emitting a check per iteration the gap
+   would scale with `n` and read ~1,500+ at 50. Rewriting sixteen loops to buy 44 gas, at the
+   cost of a more easily mis-edited loop body, is a trade worth declining. The probe is kept
+   in `tests/gasProbes.test.ts` so the answer can be re-measured when the compiler moves.
+
+6. **NatSpec on every external function.** Every `external`/`public` function and constructor
+   across the shipped contracts now carries it, including the interfaces. The bar applied: say
+   what a caller cannot infer from the signature — which return values are shaped rather than
+   meaningful, which guards are load-bearing, and which trust assumptions are stated rather
+   than engineered away.
+
 ---
 
 ## 6. Privy integration — the "web2 feel" requirement

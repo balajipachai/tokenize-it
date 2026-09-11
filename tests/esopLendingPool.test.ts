@@ -797,4 +797,108 @@ describe("PHASE 4: ESOPLendingPool", () => {
       expect(await pool.ltvOf(1)).to.be.closeTo(Number(before) / 2, 2);
     });
   });
+  describe("10. Guarding the admin knobs", () => {
+    // None of these are attacks. They are the typo an issuer makes at 6pm on a Friday, and
+    // every one of them would either brick the pool or make somebody's healthy loan seizable.
+
+    const DAYS = (n: number) => n * DAY;
+    const OK: [number, number, number, number, number, number] = [2_500, 4_000, 800, DAYS(7), DAYS(730), DAYS(3)];
+
+    function withParam(i: number, v: number) {
+      const p = [...OK] as typeof OK;
+      p[i] = v;
+      return p;
+    }
+
+    it("10.1 refuses a feed address of zero, which would revert every valuation", async () => {
+      const navAddr = await nav.getAddress();
+      const pegAddr = await peg.getAddress();
+
+      const NONE = ethers.ZeroAddress;
+      await expect(pool.connect(admin).setFeeds(NONE, pegAddr, DAYS(400), DAYS(2)))
+        .to.be.revertedWithCustomError(pool, "ZeroAddress");
+      await expect(pool.connect(admin).setFeeds(navAddr, NONE, DAYS(400), DAYS(2)))
+        .to.be.revertedWithCustomError(pool, "ZeroAddress");
+
+      // The pool is still working, i.e. the guard rejected rather than half-applied.
+      expect(await pool.navFeed()).to.equal(navAddr);
+      expect(await pool.collateralValue(1_000)).to.be.gt(0);
+    });
+
+    it("10.2 refuses a staleness bound of zero, which would refuse every price as too old", async () => {
+      const navAddr = await nav.getAddress();
+      const pegAddr = await peg.getAddress();
+
+      await expect(pool.connect(admin).setFeeds(navAddr, pegAddr, 0, DAYS(2)))
+        .to.be.revertedWithCustomError(pool, "ZeroAmount");
+      await expect(pool.connect(admin).setFeeds(navAddr, pegAddr, DAYS(400), 0))
+        .to.be.revertedWithCustomError(pool, "ZeroAmount");
+    });
+
+    it("10.3 refuses a zero borrowing ceiling -- nobody could ever borrow again", async () => {
+      await expect(pool.connect(admin).setRiskParams(...withParam(0, 0)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+    });
+
+    it("10.4 refuses a ceiling at or above 100% -- a loan would open underwater", async () => {
+      await expect(pool.connect(admin).setRiskParams(...withParam(0, 10_000)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+    });
+
+    it("10.5 THE DANGEROUS ONE: refuses a liquidation threshold at or below the ceiling", async () => {
+      // Set these the wrong way round and every loan -- including ones already open and
+      // perfectly healthy -- becomes seizable by anyone the moment the transaction lands.
+      await expect(pool.connect(admin).setRiskParams(...withParam(1, 2_500)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+      await expect(pool.connect(admin).setRiskParams(...withParam(1, 2_000)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+    });
+
+    it("10.6 refuses an absurd rate, but allows an interest-free facility", async () => {
+      await expect(pool.connect(admin).setRiskParams(...withParam(2, 10_001)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+
+      // Zero is a legitimate issuer policy, not a mistake, so it must go through.
+      await expect(pool.connect(admin).setRiskParams(...withParam(2, 0))).to.not.be.reverted;
+      expect(await pool.aprBps()).to.equal(0);
+    });
+
+    it("10.7 refuses an empty or inverted term window", async () => {
+      await expect(pool.connect(admin).setRiskParams(...withParam(3, 0)))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+      await expect(pool.connect(admin).setRiskParams(...withParam(4, DAYS(1))))
+        .to.be.revertedWithCustomError(pool, "InvalidRiskParams");
+    });
+
+    it("10.8 refuses a grace that swallows the shortest term", async () => {
+      // Maturity is set BEFORE the hold expires; a grace longer than the term would put
+      // maturity before the loan opened.
+      await expect(pool.connect(admin).setRiskParams(...withParam(5, DAYS(7))))
+        .to.be.revertedWithCustomError(pool, "GraceExceedsMinTerm");
+      await expect(pool.connect(admin).setRiskParams(...withParam(5, 0)))
+        .to.be.revertedWithCustomError(pool, "GraceExceedsMinTerm");
+    });
+
+    it("10.9 the defaults the constructor ships satisfy the invariant it enforces", async () => {
+      // The constructor routes through the same validation, so this is really asking whether
+      // a deployment could ever start outside the bounds every later change is held to.
+      const maxLtv = await pool.maxLtvBps();
+      const liqLtv = await pool.liquidationLtvBps();
+      expect(maxLtv).to.be.gt(0);
+      expect(liqLtv).to.be.gt(maxLtv);
+      expect(await pool.liquidationGrace()).to.be.lt(await pool.minTerm());
+      expect(await pool.minTerm()).to.be.lte(await pool.maxTerm());
+
+      // And re-applying exactly what it set is accepted, not rejected.
+      await expect(pool.connect(admin).setRiskParams(...OK)).to.not.be.reverted;
+    });
+
+    it("10.10 still only the admin may turn any of these knobs", async () => {
+      await expect(pool.connect(borrower).setRiskParams(...OK))
+        .to.be.revertedWithCustomError(pool, "NotAdmin");
+      await expect(
+        pool.connect(borrower).setFeeds(await nav.getAddress(), await peg.getAddress(), DAYS(400), DAYS(2)),
+      ).to.be.revertedWithCustomError(pool, "NotAdmin");
+    });
+  });
 });
