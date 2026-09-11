@@ -36,7 +36,7 @@ Expect **71 passing** in ~20 seconds. This is the safety net; if it is red, stop
 ## 2. Start the portal
 
 ```bash
-npm run portal:dev          # http://localhost:3000
+npm run dev                 # http://localhost:3000
 ```
 
 If you see **"Almost there"**, `.env.local` is not being read — the Privy app ID is missing.

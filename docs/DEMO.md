@@ -12,8 +12,8 @@ either sets that up or proves it.
 ## Before you record
 
 ```bash
-npm run portal:dev            # :3000  employee
-npm run console:dev           # :3001  issuer  (connect the HR wallet once, before recording)
+npm run dev                   # :3000  — employee at /, issuer at /issuer
+                              # connect the HR wallet at /issuer once, before recording
 node services/indexer/index.mjs
 ```
 
@@ -21,7 +21,7 @@ State to have ready, so nothing is waiting on a timer mid-take:
 
 - Employee `0xd8AE…7D51` signed in at :3000, with **claimable tranches** and **no open loan**.
   If there is nothing to claim, seed one: `EMPLOYEE=0xd8AE… DEMO_CLIFF_SECONDS=60 npm run testnet:grant`
-- HR wallet connected at :3001, **Equity** tab selected.
+- HR wallet connected at :3000/issuer, **Equity** tab selected.
 - Treasury holding USDC: `node -e` check, or top up with `TO=0x51845f… AMOUNT=50000 npm run testnet:fund-usdc`
 - A second browser profile is worth it — MetaMask on the console, Privy on the portal, no
   account switching on camera.
@@ -73,7 +73,7 @@ Type an amount well under the limit. **Click Borrow**, sign the Privy prompt.
 the held figure reads zero and the point evaporates:
 
 ```bash
-npm run demo:proof
+npm run proof:no-custody
 ```
 
 > "The lending pool holds zero shares. The collateral never left the employee's wallet — it
@@ -97,7 +97,7 @@ Point at the button: **Repay 750.000148 USDC**.
 
 ## 2:00 – 2:38 · The issuer, and the employee's recourse
 
-**Screen:** console at :3001, **Equity** tab.
+**Screen:** the issuer console at /issuer, **Equity** tab.
 
 > "Same data from the issuer's side. Granted, vested, unvested, clawed back — and the
 > arithmetic reconciles on every row."

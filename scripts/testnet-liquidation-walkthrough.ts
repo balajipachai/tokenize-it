@@ -22,7 +22,7 @@
 // repricing every outstanding loan at once. The script restores NAV on the way out, in a
 // `finally`, so a failure part-way through cannot leave the demo marked down.
 //
-//   npm run testnet:liquidation-demo
+//   npm run testnet:liquidation-walkthrough
 
 import fs from "node:fs";
 import path from "node:path";
@@ -224,7 +224,7 @@ async function restore(nav: ethersLib.BaseContract & Record<string, never>, targ
     // Stay a little inside the cap; landing exactly on it risks a rounding-driven revert.
     const maxStep = (current * cap * 95n) / (10_000n * 100n);
     const next = target > current ? min(target, current + maxStep) : max(target, current - maxStep);
-    await publish(nav, ethersLib.formatUnits(next, 8), "Restoring post-demo valuation");
+    await publish(nav, ethersLib.formatUnits(next, 8), "Restoring the pre-walkthrough valuation");
   }
   throw new Error("Could not restore NAV within the step budget — check the oracle manually.");
 }

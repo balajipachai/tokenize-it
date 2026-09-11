@@ -3,7 +3,7 @@
 // Runs payroll against live Hedera testnet, then delivers it the way an employee would
 // actually receive it — relayed, with the employee never paying gas.
 //
-//   npm run testnet:payroll-demo
+//   npm run testnet:payroll-walkthrough
 
 import fs from "node:fs";
 import path from "node:path";

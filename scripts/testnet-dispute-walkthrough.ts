@@ -11,7 +11,7 @@
 // It asserts the guards rather than just the happy path, because the guards ARE the feature:
 // a dispute window nobody can wait out, or a ruling anyone can skip, is not recourse.
 //
-//   npm run testnet:dispute-demo
+//   npm run testnet:dispute-walkthrough
 
 import fs from "node:fs";
 import path from "node:path";
@@ -71,7 +71,7 @@ async function main() {
   const rec = JSON.parse(fs.readFileSync(DEPLOYMENTS, "utf8"));
   const controller = await ethers.getContractAt("ESOPVestingController", rec.esopVestingController.address);
   const token = (await ethers.getContractAt("IAsset", rec.esopToken.address)) as unknown as IAsset;
-  const arbiterAddress: string = rec.esopVestingController.demoArbiter.address;
+  const arbiterAddress: string = rec.esopVestingController.arbiter.address;
   const arbiter = await ethers.getContractAt("MockMultisig", arbiterAddress);
 
   console.log("=".repeat(72));
@@ -95,7 +95,7 @@ async function main() {
   const now = Math.floor(Date.now() / 1000);
   const at = now;
   await (
-    await token.grantKyc(employee, `did:hedera:testnet:${operator.address}#dispute-demo-${at}`, at, at + 31536000, operator.address, GAS)
+    await token.grantKyc(employee, `did:hedera:testnet:${operator.address}#dispute-walkthrough-${at}`, at, at + 31536000, operator.address, GAS)
   ).wait();
   await (await token.addToControlList(employee, GAS)).wait();
 

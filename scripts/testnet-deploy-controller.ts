@@ -152,7 +152,37 @@ async function main() {
     console.log(`  -> grant admin: ${hr}`);
   }
 
-  step("6", "Seeding demo grants...");
+  // ---------------------------------------------------------------------------
+  // Written HERE, before seeding, and deliberately.
+  //
+  // The record used to be written only at the very end, after the grants. Seeding is the
+  // longest and most failure-prone part of this script -- dozens of transactions, each one
+  // a chance to run out of gas -- and a failure there meant the file never learned about a
+  // controller that by then held the entire option pool, moved across from its predecessor.
+  // The result was a deployments file pointing at an empty contract while the real one sat
+  // unrecorded, which is a genuinely unpleasant thing to unpick by hand.
+  //
+  // Grants are appended afterwards. Losing the grant list to a crash is recoverable; losing
+  // the address of the contract holding 500,000 options is not.
+  // ---------------------------------------------------------------------------
+  record.previousControllers = [...(record.previousControllers ?? []), ...(previous ? [previous] : [])];
+  record.esopVestingController = {
+    address: controllerAddress,
+    contractIdentifier: "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
+    creationTxHash: deployTx?.hash ?? null,
+    admin: operator.address,
+    disputeWindowSeconds: DISPUTE_WINDOW,
+    arbiter: {
+      address: arbiterAddress,
+      note: "2-of-N stand-in so the appeal path can be exercised. NOT a Safe; replace in production.",
+    },
+  };
+  record.grants = [];
+  delete record.demoGrant; // superseded by `grants`
+  fs.writeFileSync(DEPLOYMENTS, JSON.stringify(record, null, 2) + "\n");
+  console.log(`  recorded in deployments/hedera-testnet.json`);
+
+  step("6", "Seeding grants...");
   const employees = (process.env.DEMO_EMPLOYEES ?? "")
     .split(",")
     .map((a) => a.trim())
@@ -195,20 +225,7 @@ async function main() {
     });
   }
 
-  record.previousControllers = [...(record.previousControllers ?? []), ...(previous ? [previous] : [])];
-  record.esopVestingController = {
-    address: controllerAddress,
-    contractIdentifier: "contracts/tokenize-it/ESOPVestingController.sol:ESOPVestingController",
-    creationTxHash: deployTx?.hash ?? null,
-    admin: operator.address,
-    disputeWindowSeconds: DISPUTE_WINDOW,
-    demoArbiter: {
-      address: arbiterAddress,
-      note: "2-of-N stand-in so the appeal path can be demonstrated. NOT a Safe; replace in production.",
-    },
-  };
   record.grants = grants;
-  delete record.demoGrant; // superseded by `grants`
   fs.writeFileSync(DEPLOYMENTS, JSON.stringify(record, null, 2) + "\n");
 
   console.log("\n" + "=".repeat(72));

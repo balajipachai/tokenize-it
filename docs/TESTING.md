@@ -33,19 +33,19 @@ Live addresses (all Sourcify `exact_match`):
 | | |
 |---|---|
 | ESOP token | `0x17E651D659704A47932ff7Ffd6032860E468cE58` |
-| ESOPVestingController | `0x7738f758679bbe8729A01C0313ae3052b21D683d` |
-| ESOPLendingPool | `0xB66844b213f42d682608452E306d3663C2a46d26` |
+| ESOPVestingController | `0xbCd6318cF45f470B845eBfb292a05212150ce065` |
+| ESOPLendingPool | `0x1c1885A672c39EEA505E75B83508D78574f7Ae2C` |
 | EsopNavOracle | `0x0C101f1439B2356C2E7b1844FB039b7BB8885511` |
 | MockUSDC | `0x7f22F51119D41CA4D8Cc36b0b48cf01c644407F9` |
-| PayrollDisburser | `0x30aE1594B8046ac193dBa41D89eeEe8Aa01400f3` |
+| PayrollDisburser | `0x23608aC73e238F95a378233318E526EE6059e013` |
 | Payroll treasury (Privy) | `0x51845f648259F061200AF477901316548cB7150A` |
-| Demo arbiter (multisig) | `0x86a602f02918628C7349fA68EcdE572d7aABcF86` |
+| Arbiter (multisig stand-in) | `0xCcc28333F1f992dF0075c756B61CBbdD4C766cde` |
 | Relayer | `0x534D3B33113cF1435d63969059F593bb12e04069` |
 
 Balances that must be non-zero, or later steps stall:
 
 ```bash
-npm run demo:proof     # also prints the employee's position
+npm run proof:no-custody     # also prints the employee's position
 ```
 
 - [ ] Relayer holds HBAR (pays every employee fee)
@@ -56,7 +56,7 @@ npm run demo:proof     # also prints the employee's position
 ## 1 · Issue a grant (issuer console)
 
 ```bash
-npm run console:dev     # http://localhost:3001
+npm run dev     # http://localhost:3000/issuer
 HR=0xYourMetaMaskAddress npm run testnet:grant-roles   # once per HR wallet
 ```
 
@@ -81,7 +81,7 @@ Reconciliation, on every row:
 ## 2 · Claim (employee portal)
 
 ```bash
-npm run portal:dev      # http://localhost:3000
+npm run dev     # http://localhost:3000
 ```
 
 - [ ] Sign in with an email. A wallet is created — **no seed phrase, no extension, no HBAR**.
@@ -113,7 +113,7 @@ Check the fee was not paid by the employee:
 **Now the shot that matters**, while the loan is open:
 
 ```bash
-npm run demo:proof
+npm run proof:no-custody
 ```
 
 - [ ] **The lending pool holds 0 ESOP shares.**
@@ -136,7 +136,7 @@ If the pool holds shares, custody has leaked and the central claim is false.
 The scripted pass covers the whole matrix and asserts the guards, not just the happy path:
 
 ```bash
-npm run testnet:dispute-demo     # ~8 minutes, mostly vesting and dispute-window waits
+npm run testnet:dispute-walkthrough     # ~8 minutes, mostly vesting and dispute-window waits
 ```
 
 - [ ] Clawback **refused** during the dispute window.
@@ -159,7 +159,7 @@ Then the same thing by hand, in the console:
 ## 6 · Liquidation
 
 ```bash
-npm run testnet:liquidation-demo
+npm run testnet:liquidation-walkthrough
 ```
 
 Borrows against the operator's treasury, not an employee, so your demo position survives.
@@ -207,7 +207,7 @@ npm run testnet:vesting-keeper          # one pass; WATCH=60 to keep going
       the property being protected, and it is why the keeper is allowed to be a script.
 
 ```bash
-npm run testnet:dividend-demo           # ~90s, waits for the record date
+npm run testnet:dividend-walkthrough           # ~90s, waits for the record date
 ```
 
 - [ ] Declares through ATS's own facet, snapshots holders at the record date, and prints each

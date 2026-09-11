@@ -18,11 +18,11 @@
     "creationTxHash": null,
     "admin": "0xCB2e6f4f94518A203D79ADe10b98eb9D6ee89a94",
     "disputeWindowSeconds": 180,
-    "demoArbiter": {
-      "address": "0x330eD690E9535648b5e6b5448f80Dbc3cc2Bbaa5",
-      "note": "2-of-N stand-in so the appeal path can be demonstrated. NOT a Safe; replace in production."
-    },
-    "note": "Adopted rather than redeployed: the run that created it moved the whole option pool across from the previous controller and then failed funding a grant on gas. Redeploying again would have moved the pool a third time for no reason."
+    "note": "Adopted rather than redeployed: the run that created it moved the whole option pool across from the previous controller and then failed funding a grant on gas. Redeploying again would have moved the pool a third time for no reason.",
+    "arbiter": {
+      "address": "0xCcc28333F1f992dF0075c756B61CBbdD4C766cde",
+      "note": "2-of-N stand-in so the appeal path can be exercised. NOT a Safe; replace in production."
+    }
   },
   "grants": [
     {

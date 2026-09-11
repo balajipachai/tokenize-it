@@ -6,7 +6,7 @@
  * everything else rests on — the issuer keeps clawback and freeze authority over pledged
  * equity, and the pool never has to be trusted with custody because it never has any.
  *
- *   npm run demo:proof
+ *   npm run proof:no-custody
  */
 import fs from "node:fs";
 import path from "node:path";

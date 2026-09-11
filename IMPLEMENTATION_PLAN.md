@@ -1176,7 +1176,7 @@ mistake. Everything remaining carries an inline suppression with a reason.
 All three Sourcify `exact_match`. The peg feed points at the **real Chainlink USDC/USD feed**
 (`0xb632a7…B6B5`), not a stand-in.
 
-`npm run testnet:lending-demo` runs a full loan against live testnet. Pledged 5,000 shares,
+`npm run testnet:lending-walkthrough` runs a full loan against live testnet. Pledged 5,000 shares,
 borrowed 1,250.10 USDC at 12.49% LTV, repaid in full, collateral returned. Two details worth
 noticing in that output:
 
@@ -1431,7 +1431,7 @@ Phase 5 second.
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | ~~Hold cannot be executed to a non-KYC'd pool~~ | ~~High~~ → **Closed** | Confirmed by spike #1 (§5.2), then **exercised for real** by `testnet:liquidation-demo`: the pool seized 2,174 of 5,000 pledged shares and released the 2,826 surplus. Pledge and repay are unrestricted; the seizure leg needs the pool KYC'd + allowlisted, which `testnet:deploy-lending` does |
+| 1 | ~~Hold cannot be executed to a non-KYC'd pool~~ | ~~High~~ → **Closed** | Confirmed by spike #1 (§5.2), then **exercised for real** by `testnet:liquidation-walkthrough`: the pool seized 2,174 of 5,000 pledged shares and released the 2,826 surplus. Pledge and repay are unrestricted; the seizure leg needs the pool KYC'd + allowlisted, which `testnet:deploy-lending` does |
 | 1b | **Perpetual hold used to dodge clawback** | Medium *(new, from spike C2)* | Held tokens are immune to `controllerRedeemByPartition` and there is no issuer override. `ESOPLendingPool` must never issue a hold with `expirationTimestamp = 0`, and must cap user-supplied expirations |
 | 2 | ~~Privy hollow accounts un-activated~~ | ~~High~~ → **Low** | **Retired by §6.** Employees never send transactions, so their accounts never need activating. Only the backend relayer needs HBAR — one account to fund and monitor |
 | 3 | ~~Chainlink feeds stale or absent~~ | ~~Medium~~ → **Closed** | Verified live (§5.3.2). Residual: use **per-feed** staleness thresholds — USDC/USD was 18 h old at check time and a global 1 h guard would brick the pool |

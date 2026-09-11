@@ -6,7 +6,7 @@
 // The assertion that matters is that the borrower's ESOP balance is unchanged throughout.
 // Collateral is a hold, not a transfer — the shares never leave their wallet.
 //
-//   BORROWER_KEY=0x... npm run testnet:lending-demo
+//   BORROWER_KEY=0x... npm run testnet:lending-walkthrough
 
 import fs from "node:fs";
 import path from "node:path";

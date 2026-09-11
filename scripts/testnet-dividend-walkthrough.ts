@@ -17,8 +17,8 @@
 // Employees hold vesting-restricted equity, so this is a real question rather than a
 // decoration: an employee whose tranches have vested IS a shareholder and is owed their share.
 //
-//   npm run testnet:dividend-demo
-//   AMOUNT=50000 npm run testnet:dividend-demo
+//   npm run testnet:dividend-walkthrough
+//   AMOUNT=50000 npm run testnet:dividend-walkthrough
 
 import fs from "node:fs";
 import path from "node:path";
