@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Address } from "viem";
 import { approveRun, discardRun, draftRun, readEarnings, readPayroll, submitRun } from "@/lib/payroll";
+import { requireGrantAdmin } from "@/lib/payrollAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,14 +12,18 @@ export const dynamic = "force-dynamic";
  * Everything else here is signed by HR's own MetaMask, so the browser proves who is acting.
  * Payroll cannot work that way: the treasury is a Privy wallet whose quorum signs API
  * requests, not Hedera transactions, so the officer keys live on the server. That makes this
- * route the approval authority rather than a relay of one.
+ * route the approval authority rather than a relay of one — which is exactly why every
+ * request must come from a signed-in grant admin (see lib/payrollAuth.ts). Without that
+ * check, anyone who found the URL could draft, approve and submit a run.
  *
- * For a local demo that is the honest shape. A real deployment splits it: each officer holds
- * their own key and approves from their own client, so no single process can assemble a full
- * quorum. Nothing in the contract or the Privy configuration changes — only where the keys
- * sit.
+ * What the check does NOT restore is the quorum's independence: one grant admin can still
+ * approve as every officer, because every officer key sits in this one process. A real
+ * deployment splits the keys, each officer approving from their own client, so no single
+ * process can assemble a quorum. Nothing in the contract or the Privy configuration changes.
  */
 export async function GET(req: Request) {
+  const auth = await requireGrantAdmin(req);
+  if ("error" in auth) return NextResponse.json({ error: auth.error, signIn: true }, { status: auth.status });
   try {
     const url = new URL(req.url);
     const employees = (url.searchParams.get("employees") ?? "")
@@ -26,13 +31,15 @@ export async function GET(req: Request) {
       .map((a) => a.trim())
       .filter(Boolean) as Address[];
     const [state, earnings] = await Promise.all([readPayroll(), readEarnings(employees)]);
-    return NextResponse.json({ ...state, earnings });
+    return NextResponse.json({ ...state, earnings, signedInAs: auth.address });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Payroll is not configured." }, { status: 503 });
   }
 }
 
 export async function POST(req: Request) {
+  const auth = await requireGrantAdmin(req);
+  if ("error" in auth) return NextResponse.json({ error: auth.error, signIn: true }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
   try {
     switch (body.action) {

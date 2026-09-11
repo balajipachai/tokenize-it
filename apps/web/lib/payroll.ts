@@ -4,6 +4,7 @@ import path from "node:path";
 import { PrivyClient, generateAuthorizationSignature } from "@privy-io/node";
 import { createPublicClient, encodeFunctionData, http, parseUnits, formatUnits, type Address } from "viem";
 import { payrollAbi } from "./abi";
+import { deploymentRecord } from "./deployment";
 
 /**
  * Server side of payroll.
@@ -40,24 +41,50 @@ export interface Deployment {
 }
 
 export function deployment(): Deployment {
-  const root = process.env.TOKENIZE_IT_ROOT ?? path.resolve(process.cwd(), "../..");
-  const raw = fs.readFileSync(path.join(root, "deployments", "hedera-testnet.json"), "utf8");
-  const record = JSON.parse(raw);
+  const record = deploymentRecord as unknown as Deployment;
   if (!record.payroll?.org) throw new Error("No Privy payroll org recorded. Run setup-payroll-org.mjs.");
   return record;
 }
 
-/** Officer signing keys, as base64 PKCS8 with no PEM armour — the form Privy expects. */
+/**
+ * Officer signing keys, as base64 PKCS8 with no PEM armour — the form Privy expects.
+ *
+ * Environment variables first, so a hosted deployment can hold them as secrets:
+ * PAYROLL_OFFICER_1_KEY, PAYROLL_OFFICER_2_KEY, and so on. Each may be the full PEM (with
+ * real newlines, or literal "\n" since most hosting dashboards take a single line) or just
+ * the base64 body. They are ordered by number, because the officer index a run is approved
+ * under has to mean the same key every time.
+ *
+ * Falls back to `.env.payroll.local`, which `setup-payroll-org.mjs` writes for local use.
+ * That file is gitignored, so on a host it simply is not there — which is why the
+ * environment is checked first rather than second.
+ */
 function officerKeys(): string[] {
+  const fromEnv = Object.keys(process.env)
+    .map((name) => ({ name, n: /^PAYROLL_OFFICER_(\d+)_KEY$/.exec(name)?.[1] }))
+    .filter((k): k is { name: string; n: string } => k.n !== undefined && !!process.env[k.name])
+    .sort((a, b) => Number(a.n) - Number(b.n))
+    .map((k) => process.env[k.name] as string);
+  return (fromEnv.length > 0 ? fromEnv : officerKeysFromFile()).map(normaliseKey);
+}
+
+/** Strips quoting and PEM armour, so the same value works whichever way it was pasted. */
+function normaliseKey(raw: string): string {
+  return raw
+    .replace(/^["']|["']$/g, "")
+    .replace(/\\n/g, "\n")
+    .replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "")
+    .replace(/\s+/g, "");
+}
+
+function officerKeysFromFile(): string[] {
   const root = process.env.TOKENIZE_IT_ROOT ?? path.resolve(process.cwd(), "../..");
   const file = path.join(root, "apps", "web", ".env.payroll.local");
   if (!fs.existsSync(file)) return [];
   const keys: string[] = [];
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     const m = line.match(/^PAYROLL_OFFICER_\d+_KEY=(.*)$/);
-    if (!m) continue;
-    const pem = m[1].replace(/^["']|["']$/g, "").replace(/\\n/g, "\n");
-    keys.push(pem.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "").replace(/\s+/g, ""));
+    if (m) keys.push(m[1]);
   }
   return keys;
 }

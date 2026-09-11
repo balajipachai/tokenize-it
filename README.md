@@ -221,6 +221,12 @@ request to the equity token carrying a *full* quorum is refused with `policy_vio
 Runs are drafted in the console's **Payroll** tab and approved per officer, so the threshold is
 visible rather than something you take on trust.
 
+The tab is for **grant admins only**, and the server enforces that, not just the screen. HR
+signs one message with the wallet they already connect (no transaction, no fee). The server
+recovers the address, checks the controller's `isGrantAdmin` on-chain, and opens a one-hour
+session. The role is re-checked on every request, so revoking it on-chain ends payroll access
+immediately rather than when the session runs out.
+
 > If you redeploy the payroll contract, re-point the policy at it or every run will be refused:
 > `node apps/web/scripts/sync-payroll-policy.mjs`
 
@@ -266,6 +272,47 @@ node scripts/verify.mjs 0xabc...  # or one specific address
 
 Safe to re-run: it checks first and exits early if the contract is already verified. It reads
 the compiler input straight from the pinned ATS build, which is why the match comes back exact.
+
+---
+
+## Hosting it
+
+The app needs a running Node server, not static hosting: its API routes sign with the relayer
+key, verify Privy sessions, and read the chain. A long-running Node host (Render, Railway,
+Fly.io) is the simplest fit.
+
+1. **Deploy the whole repository**, not just `apps/web`. The build imports
+   `deployments/hedera-testnet.json` from the repo root.
+2. Build command: `npm --prefix apps/web install && npm --prefix apps/web run build`
+3. Start command: `npm --prefix apps/web start`. It listens on the host's `$PORT`.
+4. Set these environment variables:
+
+   | Variable | What it is for |
+   |---|---|
+   | `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET` | Employee sign-in, and signing payroll sessions |
+   | `RELAYER_PRIVATE_KEY` | Pays employees' network fees |
+   | `PAYROLL_OFFICER_1_KEY`, `PAYROLL_OFFICER_2_KEY` | Payroll. Copy the values from `apps/web/.env.payroll.local` |
+   | `NEXT_PUBLIC_RPC_URL` | Optional; defaults to Hashio |
+   | `PAYROLL_SESSION_SECRET` | Optional; derived from `PRIVY_APP_SECRET` when unset |
+
+   Set the `NEXT_PUBLIC_*` values **before the first build**, because they are built into the
+   page.
+5. In the Privy dashboard, add your domain to the allowed origins, or email sign-in will fail.
+
+The deployment record is bundled at build time, so **redeploying contracts means rebuilding the
+app.**
+
+On a public URL, keep these in mind:
+
+- **Payroll is limited to grant admins, but not to separate people.** Both officer keys live in
+  the one server process, so a single grant admin can approve as both officers. A real
+  deployment gives each officer their own key and client. Nothing in the contract or the Privy
+  setup has to change for that.
+- **Drafted payroll runs live in memory.** A restart discards them. Run one instance: on a
+  serverless host such as Vercel, the draft, approve and submit steps can land on different
+  instances and lose the run. The employee and equity sides are fine on serverless.
+- **The relayer pays for every employee action, and anyone can sign up with an email.** There
+  is no rate limiting, so keep an eye on the relayer's HBAR.
 
 ---
 

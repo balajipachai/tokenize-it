@@ -1,10 +1,9 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
 import { createPublicClient, createWalletClient, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hederaTestnet } from "./chain";
 import { controllerAbi, controllerEvents, tokenAbi } from "./abi";
+import { deploymentRecord } from "./deployment";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -17,20 +16,16 @@ interface Deployment {
   esopVestingController?: { address: Address; creationTxHash?: `0x${string}` | null };
 }
 
-let cached: Deployment | null = null;
-
-/** Reads addresses from the repo's deployment record rather than duplicating them in env. */
+/**
+ * Addresses come from the repo's deployment record rather than being duplicated in env.
+ * Bundled at build time -- see lib/deployment.ts for why it is no longer read from disk.
+ */
 export function deployment(): Deployment {
-  if (cached) return cached;
-  const file = path.resolve(process.cwd(), "../../deployments/hedera-testnet.json");
-  if (!fs.existsSync(file)) {
-    throw new Error(`No deployment record at ${file}. Run 'npm run testnet:deploy-controller' from the repo root.`);
+  const record = deploymentRecord as unknown as Deployment;
+  if (!record.esopVestingController) {
+    throw new Error("Deployment record has no controller. Run 'npm run testnet:deploy-controller', then rebuild.");
   }
-  cached = JSON.parse(fs.readFileSync(file, "utf8")) as Deployment;
-  if (!cached.esopVestingController) {
-    throw new Error("Deployment record has no controller. Run 'npm run testnet:deploy-controller'.");
-  }
-  return cached;
+  return record;
 }
 
 export const publicClient = createPublicClient({ chain: hederaTestnet, transport: http() });

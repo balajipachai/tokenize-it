@@ -58,6 +58,10 @@ export function Console() {
   // single page had grown to a cap table plus a pay run plus every employee. Splitting them
   // is housekeeping, not architecture — both still read the same chain state.
   const [tab, setTab] = useState<"equity" | "payroll">("equity");
+  // A wallet that turns out not to be a grant admin must not be left on a tab it cannot see.
+  useEffect(() => {
+    if (isAdmin === false) setTab("equity");
+  }, [isAdmin]);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Grant form
@@ -244,18 +248,24 @@ export function Console() {
           >
             Equity
           </button>
-          <button
-            role="tab"
-            aria-selected={tab === "payroll"}
-            className={tab === "payroll" ? "tab active" : "tab"}
-            onClick={() => setTab("payroll")}
-          >
-            Payroll
-          </button>
+          {/* Shown to grant admins only. This is the courtesy; the rule itself is enforced
+              by /api/payroll, which refuses any request without a grant-admin session. */}
+          {isAdmin && (
+            <button
+              role="tab"
+              aria-selected={tab === "payroll"}
+              className={tab === "payroll" ? "tab active" : "tab"}
+              onClick={() => setTab("payroll")}
+            >
+              Payroll
+            </button>
+          )}
         </div>
       )}
 
-      {account && tab === "payroll" && <Payroll employees={holders.map((h) => h.address)} />}
+      {account && isAdmin && tab === "payroll" && (
+        <Payroll employees={holders.map((h) => h.address)} account={account} />
+      )}
 
       {account && tab === "equity" && pool && (
         <div className="card">

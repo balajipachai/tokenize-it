@@ -1,10 +1,9 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
 import { formatUnits, type Address } from "viem";
 import { hederaTestnet } from "./chain";
 import { payrollAbi, erc20Abi, controllerAbi } from "./abi";
 import { deployment, publicClient, relayer, gasFor } from "./contracts";
+import { deploymentRecord } from "./deployment";
 
 /**
  * The employee's side of payroll.
@@ -25,9 +24,7 @@ interface PayrollRecord {
 }
 
 function payrollRecord(): { payroll: Address; stable: Address } | null {
-  const file = path.resolve(process.cwd(), "../../deployments/hedera-testnet.json");
-  if (!fs.existsSync(file)) return null;
-  const record = JSON.parse(fs.readFileSync(file, "utf8")) as PayrollRecord;
+  const record = deploymentRecord as unknown as PayrollRecord;
   if (!record.payroll?.address || !record.payroll?.stablecoin) return null;
   return { payroll: record.payroll.address, stable: record.payroll.stablecoin };
 }
