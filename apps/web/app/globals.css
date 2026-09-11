@@ -234,140 +234,6 @@ button .spinner.small {
   border-top-color: #fff;
 }
 
-/* ---- issuer console ---- */
-
-.shell {
-  max-width: 860px;
-}
-
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 18px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.grid label:first-child {
-  grid-column: 1 / -1;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-input {
-  font: inherit;
-  font-size: 14px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-}
-
-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-.row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-
-button.danger {
-  background: #b91c1c;
-}
-
-button.ghost {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  padding: 12px 18px;
-}
-
-.stats.four {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.holder {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 12px;
-}
-
-.holder-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.pill {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--line);
-  color: var(--muted);
-}
-
-.pill.good {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.pill.bad {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.link {
-  color: var(--accent);
-  text-decoration: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
-.banner.busy {
-  background: #eff6ff;
-  color: #1e3a8a;
-}
-
-.muted.warn {
-  color: #b45309;
-}
-
-.muted.small {
-  font-size: 11px;
-  margin-top: 10px;
-}
-
-label.inline {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-label.inline input {
-  padding: 7px 9px;
-}
-
 .overlay {
   position: fixed;
   inset: 0;
@@ -384,6 +250,7 @@ label.inline input {
   padding: 30px 40px;
   text-align: center;
   min-width: 300px;
+  max-width: 360px;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
 }
 
@@ -398,29 +265,230 @@ label.inline input {
   border-width: 3px;
 }
 
-.stats.five {
+label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+input {
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  width: 150px;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.muted.small {
+  font-size: 11px;
+}
+
+/* ---- issuer console ----
+   Scoped under `.issuer` rather than left at the top level. The employee and issuer pages
+   share one stylesheet now, and this block redefines .shell, .row and the overlay classes
+   and styles bare header/label/input -- all of which would otherwise reach the employee
+   page and quietly restyle it. */
+
+.issuer .shell {
+  max-width: 860px;
+}
+
+.issuer header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.issuer .grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.issuer .grid label:first-child {
+  grid-column: 1 / -1;
+}
+
+.issuer label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.issuer input {
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.issuer input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.issuer .row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.issuer button.danger {
+  background: #b91c1c;
+}
+
+.issuer button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 12px 18px;
+}
+
+.issuer .stats.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.issuer .holder {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.issuer .holder-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.issuer .pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--muted);
+}
+
+.issuer .pill.good {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.issuer .pill.bad {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.issuer .link {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.issuer .banner.busy {
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.issuer .muted.warn {
+  color: #b45309;
+}
+
+.issuer .muted.small {
+  font-size: 11px;
+  margin-top: 10px;
+}
+
+.issuer label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.issuer label.inline input {
+  padding: 7px 9px;
+}
+
+.issuer .overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.issuer .overlay-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 30px 40px;
+  text-align: center;
+  min-width: 300px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.issuer .overlay-what {
+  margin: 14px 0 4px;
+  font-weight: 600;
+}
+
+.issuer .spinner.big {
+  width: 30px;
+  height: 30px;
+  border-width: 3px;
+}
+
+.issuer .stats.five {
   grid-template-columns: repeat(5, 1fr);
 }
 
-.stat.forfeited .value {
+.issuer .stat.forfeited .value {
   color: #b91c1c;
 }
 
-.reconcile {
+.issuer .reconcile {
   margin: 10px 0 0;
   font-variant-numeric: tabular-nums;
 }
 
 /* Payroll run table. Deliberately NOT `.grid`, which is a form-field grid in this file —
    reusing it collapsed the header into a single cell. */
-.payroll-table {
+.issuer .payroll-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 14px;
   font-size: 14px;
 }
 
-.payroll-table th {
+.issuer .payroll-table th {
   text-align: left;
   font-weight: 550;
   font-size: 12px;
@@ -432,35 +500,35 @@ label.inline input {
   white-space: nowrap;
 }
 
-.payroll-table td {
+.issuer .payroll-table td {
   padding: 10px 12px 10px 0;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
 }
 
 .payroll-table th:not(:first-child),
-.payroll-table td:not(:first-child) {
+.issuer .payroll-table td:not(:first-child) {
   text-align: right;
 }
 
 .payroll-table td:last-child,
-.payroll-table th:last-child {
+.issuer .payroll-table th:last-child {
   width: 130px;
 }
 
-.payroll-table input {
+.issuer .payroll-table input {
   text-align: right;
 }
 
 /* Equity / Payroll tabs. Two jobs, done by different people on different days. */
-.tabs {
+.issuer .tabs {
   display: flex;
   gap: 4px;
   margin-bottom: 16px;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.tab {
+.issuer .tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -472,9 +540,38 @@ label.inline input {
   cursor: pointer;
 }
 
-.tab:hover { color: #111827; background: none; }
+.issuer .tab:hover { color: #111827; background: none; }
 
-.tab.active {
+.issuer .tab.active {
   color: #1d4ed8;
   border-bottom-color: #1d4ed8;
+}
+
+/* ---- the switch between the employee and issuer halves ----
+   Outside the `.issuer` scope on purpose: it is chrome belonging to the app, not to
+   either half, and it renders above both. */
+
+.sideswitch {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+  padding: 10px 0 0;
+}
+
+.sideswitch a {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 5px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.sideswitch a:hover {
+  color: var(--ink);
+}
+
+.sideswitch a.on {
+  background: var(--ink);
+  color: #fff;
 }

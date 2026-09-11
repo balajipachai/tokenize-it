@@ -4,11 +4,11 @@ import { PrivyProvider } from "@privy-io/react-auth";
 import { hederaTestnet } from "@/lib/chain";
 
 /**
- * Rendered instead of the app when Privy is unconfigured. Deliberately not a thrown
+ * Rendered by the EMPLOYEE page when Privy is unconfigured. Deliberately not a thrown
  * error: the app ID is a runtime secret, and throwing here fails `next build` at
  * prerender, which turns a missing .env.local into a broken CI pipeline.
  */
-function SetupNeeded() {
+export function SetupNeeded() {
   return (
     <div className="center">
       <div className="card" style={{ maxWidth: 460 }}>
@@ -29,9 +29,18 @@ function SetupNeeded() {
   );
 }
 
+/**
+ * Wraps the app in Privy when it is configured, and gets out of the way when it is not.
+ *
+ * This used to return the setup notice instead of the app. That was right when the portal
+ * was its own deployment, and wrong the moment the issuer console joined it: the issuer
+ * side signs with HR's own MetaMask and needs no Privy app at all, so a missing employee
+ * credential would have blanked a page that works perfectly well without it. The employee
+ * page now shows the notice itself.
+ */
 export function Providers({ children }: { children: React.ReactNode }) {
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-  if (!appId) return <SetupNeeded />;
+  if (!appId) return <>{children}</>;
 
   return (
     <PrivyProvider

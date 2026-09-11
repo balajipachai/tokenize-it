@@ -56,7 +56,7 @@ export function deployment(): Deployment {
 /** Officer signing keys, as base64 PKCS8 with no PEM armour — the form Privy expects. */
 function officerKeys(): string[] {
   const root = process.env.TOKENIZE_IT_ROOT ?? path.resolve(process.cwd(), "../..");
-  const file = path.join(root, "apps", "employee-portal", ".env.payroll.local");
+  const file = path.join(root, "apps", "web", ".env.payroll.local");
   if (!fs.existsSync(file)) return [];
   const keys: string[] = [];
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
@@ -82,7 +82,7 @@ export function officerCount(): number {
 function loadPortalEnv(): void {
   if (process.env.PRIVY_APP_SECRET && process.env.NEXT_PUBLIC_PRIVY_APP_ID) return;
   const root = process.env.TOKENIZE_IT_ROOT ?? path.resolve(process.cwd(), "../..");
-  const file = path.join(root, "apps", "employee-portal", ".env.local");
+  const file = path.join(root, "apps", "web", ".env.local");
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     const m = line.match(/^([A-Z0-9_]+)=(.*)$/);

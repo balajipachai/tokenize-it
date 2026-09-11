@@ -1,5 +1,14 @@
-/** Only the pieces the portal reads or relays. Full ABIs live in the contracts package. */
+/** Only the pieces this app reads or relays. Full ABIs live in the contracts package. */
 
+/**
+ * ONE definition per contract, shared by the employee and issuer sides of this app.
+ *
+ * They used to be two files in two apps, and they drifted: the issuer copy of `getGrant`
+ * stopped at `leaver`, omitting the three dispute fields. Because every preceding field is
+ * fixed-width, viem decoded the short tuple without complaint and the console simply could
+ * not see that a dispute window existed — clicking clawback inside one produced a contract
+ * refusal and no explanation. A single definition is the fix that stays fixed.
+ */
 export const controllerAbi = [
   {
     type: "function",
@@ -26,6 +35,12 @@ export const controllerAbi = [
           { name: "fundedTranches", type: "uint32" },
           { name: "status", type: "uint8" },
           { name: "leaver", type: "uint8" },
+          // These three were missing, so the console could not see that a dispute window
+          // existed at all: clicking clawback inside it produced a contract refusal and no
+          // explanation, because nothing here knew there was anything to explain.
+          { name: "dispute", type: "uint8" },
+          { name: "disputeDeadline", type: "uint64" },
+          { name: "terminatedBy", type: "address" },
         ],
       },
     ],
@@ -85,6 +100,63 @@ export const controllerAbi = [
       { name: "maxCount", type: "uint32" },
     ],
     outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "createGrant",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "employee", type: "address" },
+      { name: "partition", type: "bytes32" },
+      { name: "amounts", type: "uint128[]" },
+      { name: "vestsAt", type: "uint64[]" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "fundTranches",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "grantId", type: "uint256" },
+      { name: "maxCount", type: "uint32" },
+    ],
+    outputs: [{ type: "uint32" }],
+  },
+  {
+    type: "function",
+    name: "terminate",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "grantId", type: "uint256" },
+      { name: "leaver", type: "uint8" },
+      { name: "effectiveAt", type: "uint64" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "clawback",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "grantId", type: "uint256" },
+      { name: "maxCount", type: "uint32" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "nextGrantId",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "isGrantAdmin",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
   },
 ] as const;
 
@@ -184,6 +256,7 @@ export const protectedHoldAbi = [
   { type: "function", name: "arePartitionsProtected", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
 ] as const;
 
+/** The ATS diamond, employee reads and issuer writes together. */
 export const tokenAbi = [
   {
     type: "function",
@@ -230,4 +303,57 @@ export const tokenAbi = [
     ],
     outputs: [{ type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "grantKyc",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "vcId", type: "string" },
+      { name: "validFrom", type: "uint256" },
+      { name: "validTo", type: "uint256" },
+      { name: "issuer", type: "address" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "revokeKyc",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "addToControlList",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "setAddressFrozen",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "userAddress", type: "address" },
+      { name: "freezeStatus", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "addIssuer",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "issuer", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "isIssuer",
+    stateMutability: "view",
+    inputs: [{ name: "issuer", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  { type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getMaxSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;

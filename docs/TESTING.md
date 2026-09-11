@@ -23,9 +23,9 @@ npm run test:ats         # expect: 153 passing
 Environment:
 
 - [ ] `.env` has `HEDERA_TESTNET_PRIVATE_KEY_0` (the operator)
-- [ ] `apps/employee-portal/.env.local` has the Privy app id, app secret and relayer key
-- [ ] `apps/employee-portal/.env.payroll.local` exists (officer keys) — if missing, re-run
-      `node apps/employee-portal/scripts/setup-payroll-org.mjs`, which creates a **new**
+- [ ] `apps/web/.env.local` has the Privy app id, app secret and relayer key
+- [ ] `apps/web/.env.payroll.local` exists (officer keys) — if missing, re-run
+      `node apps/web/scripts/setup-payroll-org.mjs`, which creates a **new**
       quorum and treasury and needs `set-payroll-treasury` afterwards
 
 Live addresses (all Sourcify `exact_match`):
@@ -185,7 +185,7 @@ Borrows against the operator's treasury, not an employee, so your demo position 
 Prove the controls rather than trusting them:
 
 ```bash
-OFFICERS_SIGNING=1 SALARY=100 node apps/employee-portal/scripts/run-payroll.mjs
+OFFICERS_SIGNING=1 SALARY=100 node apps/web/scripts/run-payroll.mjs
 ```
 
 - [ ] Fails with **401** — *number of signatures does not match the wallet's authorization

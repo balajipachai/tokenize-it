@@ -14,10 +14,6 @@
     "test:controller": "bash scripts/ats-test.sh esopVestingController",
     "testnet:deploy-controller": "bash scripts/ats-run.sh testnet-deploy-controller.ts hedera-testnet",
     "testnet:grant": "bash scripts/ats-run.sh testnet-grant.ts hedera-testnet",
-    "portal:dev": "npm --prefix apps/employee-portal run dev",
-    "portal:build": "npm --prefix apps/employee-portal run build",
-    "console:dev": "npm --prefix apps/issuer-console run dev",
-    "console:build": "npm --prefix apps/issuer-console run build",
     "testnet:grant-roles": "bash scripts/ats-run.sh testnet-grant-roles.ts hedera-testnet",
     "testnet:set-token-name": "bash scripts/ats-run.sh testnet-set-token-name.ts hedera-testnet",
     "testnet:deploy-lending": "bash scripts/ats-run.sh testnet-deploy-lending.ts hedera-testnet",
@@ -33,6 +29,9 @@
     "testnet:arm-vesting": "bash scripts/ats-run.sh testnet-arm-vesting.ts hedera-testnet",
     "testnet:vesting-keeper": "bash scripts/ats-run.sh testnet-vesting-keeper.ts hedera-testnet",
     "testnet:dividend-demo": "bash scripts/ats-run.sh testnet-dividend-demo.ts hedera-testnet",
-    "demo:proof": "node apps/employee-portal/scripts/proof-no-custody.mjs"
+    "demo:proof": "node apps/web/scripts/proof-no-custody.mjs",
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/web run build",
+    "typecheck": "npm --prefix apps/web run typecheck"
   }
 }

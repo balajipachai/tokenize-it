@@ -130,7 +130,7 @@ async function main() {
     threshold: THRESHOLD,
     officers: OFFICERS,
     policyId: policy.id,
-    note: "Officer private keys live in apps/employee-portal/.env.payroll.local, gitignored.",
+    note: "Officer private keys live in apps/web/.env.payroll.local, gitignored.",
     createdAt: new Date().toISOString(),
   };
   fs.writeFileSync(DEPLOYMENTS, JSON.stringify(record, null, 2) + "\n");

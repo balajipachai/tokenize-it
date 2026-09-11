@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import { Providers } from "./providers";
+import { SideSwitch } from "./components/SideSwitch";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "My Equity",
-  description: "Your tokenized employee stock options.",
+  title: "tokenize-it",
+  description: "Tokenized employee stock options, with lifecycle, lending and payroll.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <SideSwitch />
+          {children}
+        </Providers>
       </body>
     </html>
   );

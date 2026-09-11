@@ -15,7 +15,7 @@ This doubles as the demo script for steps 3–4 of the pitch (§11 of `IMPLEMENT
 | | |
 |---|---|
 | `.env` (repo root) | `HEDERA_TESTNET_PRIVATE_KEY_0` — the issuer/operator key |
-| `apps/employee-portal/.env.local` | `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `RELAYER_PRIVATE_KEY` |
+| `apps/web/.env.local` | `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `RELAYER_PRIVATE_KEY` |
 | Both accounts funded | testnet HBAR from the [portal faucet](https://portal.hedera.com) |
 | ATS vendored | `npm run setup:ats` (once) |
 
@@ -104,7 +104,7 @@ const P="0x"+"0".repeat(63)+"1";
 })();'
 ```
 
-Run from `apps/employee-portal/` so `viem` resolves.
+Run from `apps/web/` so `viem` resolves.
 
 **The assertion that matters is the second line: `native: 0`.** The employee holds real equity on an
 unactivated Hedera account, having never held HBAR. If that is non-zero, the gasless claim is not

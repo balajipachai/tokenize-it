@@ -92,7 +92,7 @@
       "threshold": 2,
       "officers": 2,
       "policyId": "oqz4t6dnrlav295dzuu7smcc",
-      "note": "Officer private keys live in apps/employee-portal/.env.payroll.local, gitignored.",
+      "note": "Officer private keys live in apps/web/.env.payroll.local, gitignored.",
       "createdAt": "2026-09-10T12:00:27.010Z"
     }
   },
