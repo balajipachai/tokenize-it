@@ -222,7 +222,7 @@ export function Console() {
               {isAdmin === null ? "…" : isAdmin ? "grant admin" : "not a grant admin — writes will revert"}
             </div>
             <button
-              className="ghost"
+              className="danger"
               style={{ marginTop: 8, padding: "5px 12px", fontSize: 12 }}
               disabled={!!busy}
               onClick={() => void doDisconnect()}
