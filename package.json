@@ -34,6 +34,7 @@
     "testnet:dispute-walkthrough": "bash scripts/ats-run.sh testnet-dispute-walkthrough.ts hedera-testnet",
     "testnet:payroll-walkthrough": "bash scripts/ats-run.sh testnet-payroll-walkthrough.ts hedera-testnet",
     "testnet:dividend-walkthrough": "bash scripts/ats-run.sh testnet-dividend-walkthrough.ts hedera-testnet",
-    "proof:no-custody": "node apps/web/scripts/proof-no-custody.mjs"
+    "proof:no-custody": "node apps/web/scripts/proof-no-custody.mjs",
+    "testnet:resolve-dispute": "bash scripts/ats-run.sh testnet-resolve-dispute.ts hedera-testnet"
   }
 }

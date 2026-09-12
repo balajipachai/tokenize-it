@@ -187,10 +187,40 @@ step. They are the fastest way to understand what the contracts actually do.
 | `npm run testnet:lending-walkthrough` | Pledge, borrow, accrue interest, repay, release | ~2 min |
 | `npm run testnet:liquidation-walkthrough` | Publishes a down round, seizes the debt, returns the surplus | ~3 min |
 | `npm run testnet:dispute-walkthrough` | Bad leaver, appeal, arbitration, reinstatement — every branch | ~8 min |
+| `npm run testnet:resolve-dispute` | Lists open disputes, or rules on one as the arbiter — see below | seconds |
 | `npm run testnet:payroll-walkthrough` | A quorum-approved salary run | ~1 min |
 | `npm run testnet:dividend-walkthrough` | Record date, snapshot, pro-rata distribution | ~90s |
 
 A full manual pass over every flow, in order, is in [docs/TESTING.md](./docs/TESTING.md).
+
+### Resolving a dispute
+
+When an employee contests a termination, clawback is blocked until the arbiter rules. The
+arbiter is a multisig **contract**, not a wallet: the controller will only register a contract
+with a threshold of at least two. In this deployment it is a stand-in whose single executor is
+the operator key in `.env`, so rulings are made from the command line as the operator. There is
+no arbiter screen in the app.
+
+**1. Find the grant ID.** Run the command with no arguments. It lists every dispute waiting for a
+ruling: the grant ID, the employee, who terminated them, and how many unvested options are at
+stake. It also prints the exact command to rule on each one.
+
+```bash
+npm run testnet:resolve-dispute
+```
+
+The ID is also shown on each employee's card in the issuer console (`grant #4 · terminated`), and
+in the `DisputeRaised` event for that transaction on HashScan.
+
+**2. Rule on it.**
+
+```bash
+GRANT=4 UPHOLD=true  npm run testnet:resolve-dispute   # the termination stands; HR can claw back
+GRANT=4 UPHOLD=false npm run testnet:resolve-dispute   # overturned; the grant is reinstated
+```
+
+There is no default: a ruling has to say which way. Add `DRY_RUN=1` to check that a ruling would
+go through without sending it.
 
 ---
 
