@@ -74,3 +74,23 @@ export async function connect(): Promise<Address> {
   }
   return accounts[0];
 }
+
+/**
+ * Forgets this site in the wallet, so the next "Connect wallet" asks which account to use
+ * instead of silently reusing the last one — which is what lets a second HR person use the
+ * same browser without inheriting the first one's connection.
+ *
+ * `wallet_revokePermissions` (EIP-2255) is supported by MetaMask but not by every wallet.
+ * Where it is missing or declined, the page still forgets the account; the wallet simply
+ * stays permitted, and the next connect will not prompt.
+ */
+export async function revokeConnection(): Promise<void> {
+  if (!window.ethereum) return;
+  // Not in viem's typed RPC schema, hence the loosened signature.
+  const request = window.ethereum.request as (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  try {
+    await request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+  } catch {
+    /* unsupported or declined: the page-side disconnect still stands */
+  }
+}

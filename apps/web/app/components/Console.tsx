@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { isAddress } from "viem";
-import { connect, publicClient, watchWallet } from "@/lib/wallet";
+import { connect, publicClient, revokeConnection, watchWallet } from "@/lib/wallet";
 import { Payroll } from "./Payroll";
 import { controllerAbi, tokenAbi } from "@/lib/abi";
 import {
@@ -150,6 +150,22 @@ export function Console() {
     }
   }
 
+  /**
+   * Ends everything this page holds for the connected wallet, in an order that matters.
+   * The payroll session goes first: it is a server cookie and would outlive the page. Then
+   * the wallet's permission, so a reload cannot silently reconnect. Revoking fires the
+   * wallet's accountsChanged, which watchWallet answers with a reload — clearing the
+   * session first means that reload cannot cut it off half way.
+   */
+  async function doDisconnect() {
+    setError(null);
+    setNotice(null);
+    await fetch("/api/payroll/session", { method: "DELETE" }).catch(() => {});
+    await revokeConnection();
+    setTab("equity");
+    setAccount(null);
+  }
+
   async function run(what: string, fn: () => Promise<string | void>) {
     setBusy({ what });
     setError(null);
@@ -205,6 +221,14 @@ export function Console() {
             <div className={`muted ${isAdmin === false ? "warn" : ""}`}>
               {isAdmin === null ? "…" : isAdmin ? "grant admin" : "not a grant admin — writes will revert"}
             </div>
+            <button
+              className="ghost"
+              style={{ marginTop: 8, padding: "5px 12px", fontSize: 12 }}
+              disabled={!!busy}
+              onClick={() => void doDisconnect()}
+            >
+              Disconnect
+            </button>
           </div>
         ) : (
           <button onClick={() => void doConnect()}>Connect wallet</button>
