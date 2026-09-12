@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Mark } from "./Mark";
 
 /**
  * Moves between the two halves of the product.
@@ -21,6 +22,10 @@ export function SideSwitch() {
 
   return (
     <nav className="sideswitch" aria-label="Switch between the employee and issuer views">
+      <span className="brand">
+        <Mark size={20} id="nav" />
+        tokenize-it
+      </span>
       <Link href="/" className={onIssuer ? "" : "on"} aria-current={onIssuer ? undefined : "page"}>
         Employee
       </Link>

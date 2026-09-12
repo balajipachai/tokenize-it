@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+<svg y="285" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="264" cy="315" r="988">
+      <stop offset="0" stop-color="#1e3a8a"/><stop offset="0.58" stop-color="#0f172a"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e293b"/><stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="vested" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#059669"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <g filter="url(#shadow)">
+    <svg x="90" y="145" width="340" height="340" viewBox="0 0 512 512">
+      <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+      <rect x="116" y="296" width="52" height="90"  rx="12" fill="url(#vested)"/>
+      <rect x="192" y="236" width="52" height="150" rx="12" fill="url(#vested)"/>
+      <rect x="268" y="176" width="52" height="210" rx="12" fill="url(#vested)"/>
+      <rect x="349" y="121" width="42" height="260" rx="9" fill="none" stroke="#3b82f6" stroke-width="10"/>
+    </svg>
+  </g>
+  <g font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+    <text x="500" y="229" font-size="88" font-weight="800" fill="#ffffff" letter-spacing="-2">tokenize-it</text>
+    <text x="500" y="289" font-size="34" font-weight="600" fill="#93c5fd">Tokenized ESOPs on Hedera</text>
+    <text x="500" y="356" font-size="28" fill="#cbd5e1">Borrow against vested equity — without</text>
+    <text x="500" y="394" font-size="28" fill="#cbd5e1">selling it or leaving your wallet.</text>
+    <g font-size="20" font-weight="600" fill="#e2e8f0" text-anchor="middle">
+      <rect x="500" y="429" width="159" height="38" rx="19" fill="#0f172a" fill-opacity="0.6" stroke="#334155"/>
+      <text x="579.5" y="455">Hedera ATS</text>
+      <rect x="671" y="429" width="102" height="38" rx="19" fill="#0f172a" fill-opacity="0.6" stroke="#334155"/>
+      <text x="722" y="455">Privy</text>
+      <rect x="785" y="429" width="148" height="38" rx="19" fill="#0f172a" fill-opacity="0.6" stroke="#334155"/>
+      <text x="859" y="455">Chainlink</text>
+    </g>
+  </g>
+</svg>
+</svg>

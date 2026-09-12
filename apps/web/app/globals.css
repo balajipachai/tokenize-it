@@ -543,6 +543,7 @@ input:focus {
 
 .sideswitch {
   display: flex;
+  align-items: center;
   gap: 2px;
   justify-content: center;
   padding: 10px 0 0;
@@ -618,4 +619,20 @@ input:focus {
 
 .invite a:hover {
   text-decoration: underline;
+}
+
+/* The brand lockup at the head of the switch: mark + name, one per page. */
+.sideswitch .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.sideswitch .brand svg {
+  display: block;
 }

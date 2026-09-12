@@ -1,5 +1,7 @@
 # tokenize-it
 
+![tokenize-it — Tokenized ESOPs on Hedera](docs/brand/og-1200x630.png)
+
 Tokenized employee stock options with real lifecycle management, on Hedera via the
 [Asset Tokenization Studio](https://github.com/hashgraph/asset-tokenization-studio).
 
