@@ -592,3 +592,30 @@ input:focus {
   border-color: #fca5a5;
   box-shadow: 0 0 0 3px #fee2e2;
 }
+
+/* ---- invitation to test ----
+   App chrome like the switch above it: outside the `.issuer` scope, shown on both halves.
+   Sized to the content column so it lines up with the page beneath it. */
+
+.invite {
+  width: calc(100% - 40px);
+  max-width: 680px;
+  margin: 12px auto 0;
+  padding: 9px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.invite a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.invite a:hover {
+  text-decoration: underline;
+}
