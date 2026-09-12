@@ -19,6 +19,12 @@ because it never has any. You can check that claim yourself in about five second
 npm run proof:no-custody
 ```
 
+> **Before running it, point it at the wallet that borrowed.** The script reports on one
+> employee: the `employee` address set in `apps/web/scripts/proof-no-custody.mjs`. Update it to
+> the address that opened the loan, or pass it inline without editing the file:
+> `EMPLOYEE=0x… npm run proof:no-custody`. Pointed at someone else, it correctly reports
+> `0 held as collateral`, which is true but proves nothing.
+
 ---
 
 ## What you need before you start
